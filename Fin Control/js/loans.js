@@ -7,7 +7,7 @@ const LoansManager = {
     /**
      * Calcula el cuadro de financiación (plan de pagos)
      * @param {Object} loan - Datos del préstamo
-     * @returns {Array} - Filas con idx, date, amount, interest, principal, balance
+     * @returns {Array} - Filas con idx, date, amount, interest, principal, balance, pendingAmount
      */
     computeSchedule(loan) {
         const amount = Number(loan.amount) || 0;
@@ -22,7 +22,9 @@ const LoansManager = {
         }
         installment = Math.round(installment * 100) / 100;
         const rows = [];
-        let balance = amount;
+        let balance = amount; // Saldo pendiente para cálculo de intereses
+        let totalPrincipalPaid = 0; // Capital pagado acumulado
+        
         for (let i = 0; i < n; i++) {
             const d = new Date(startDate);
             d.setMonth(d.getMonth() + i);
@@ -30,10 +32,28 @@ const LoansManager = {
             let amt = installment;
             if (i === 0 && firstAmount) amt = firstAmount;
             if (i === n - 1 && lastAmount) amt = lastAmount;
+            
             const interest = Math.round(balance * rate * 100) / 100;
             const principal = Math.max(0, Math.round((amt - interest) * 100) / 100);
+            
+            // Actualizar saldo para próximo cálculo de intereses
             balance = Math.max(0, Math.round((balance - principal) * 100) / 100);
-            rows.push({ idx: i + 1, date: d.toISOString().slice(0,10), amount: amt, interest, principal, balance });
+            
+            // Actualizar capital pagado acumulado
+            totalPrincipalPaid += principal;
+            
+            // Calcular pendiente de pago: importe total - capital pagado acumulado
+            const pendingAmount = Math.max(0, Math.round((amount - totalPrincipalPaid) * 100) / 100);
+            
+            rows.push({ 
+                idx: i + 1, 
+                date: d.toISOString().slice(0,10), 
+                amount: amt, 
+                interest, 
+                principal, 
+                balance, // Mantener para compatibilidad
+                pendingAmount // Nuevo campo: pendiente de pago
+            });
         }
         return rows;
     },

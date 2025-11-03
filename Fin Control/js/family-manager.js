@@ -4,7 +4,7 @@
 
 const FamilyManager = {
     // Lista predefinida de miembros de familia
-    members: ['Todos', 'Padre', 'Madre', 'Hijo/a 1', 'Hijo/a 2', 'Otros'],
+    members: ['Todos', 'Jose Luis', 'Gemma', 'Hugo', 'Alba', 'Familia', 'Otros'],
     
     /**
      * Obtiene la lista de miembros de familia

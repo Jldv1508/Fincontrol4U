@@ -49,6 +49,9 @@
         case 'transactions':
           if (typeof window.loadTransactions === 'function') return window.loadTransactions();
           break;
+        case 'subject':
+          if (typeof window.loadSubjectTab === 'function') return window.loadSubjectTab();
+          break;
         case 'categories':
           {
             const main = ensureMain();

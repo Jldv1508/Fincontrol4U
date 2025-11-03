@@ -237,6 +237,21 @@ const DB = {
             request.onsuccess = () => resolve();
             request.onerror = (event) => reject(event.target.error);
         });
+    },
+
+    // Limpiar un almacén concreto
+    clearStore: function(storeName) {
+        return new Promise((resolve, reject) => {
+            try {
+                const transaction = this.db.transaction([storeName], 'readwrite');
+                const store = transaction.objectStore(storeName);
+                const request = store.clear();
+                request.onsuccess = () => resolve();
+                request.onerror = (event) => reject(event.target.error);
+            } catch (e) {
+                reject(e);
+            }
+        });
     }
 };
 

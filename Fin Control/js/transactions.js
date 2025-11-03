@@ -59,6 +59,7 @@
           <div class="tx-title"><i class="fas fa-exchange-alt"></i> <span>Transacciones</span></div>
           <div class="tx-actions">
             <button id="tx-add-btn" class="btn btn-primary"><i class="fas fa-plus"></i> Añadir</button>
+            <button id="tx-delete-all-btn" class="btn"><i class="fas fa-trash"></i> Borrar todo</button>
           </div>
         </div>
 
@@ -186,6 +187,32 @@
     if (addBtn) {
       addBtn.addEventListener('click', () => {
         document.getElementById('tx-amount')?.focus();
+      });
+    }
+
+    // Botón borrar todo
+    const deleteAllBtn = document.getElementById('tx-delete-all-btn');
+    if (deleteAllBtn) {
+      deleteAllBtn.addEventListener('click', async () => {
+        const ok = confirm('¿Seguro que quieres borrar TODAS las transacciones? Esta acción no se puede deshacer.');
+        if (!ok) return;
+        try {
+          if (typeof DB.clearStore === 'function') {
+            await DB.clearStore('transactions');
+          } else {
+            const all = await DB.getAll('transactions');
+            for (const t of all) {
+              try { await DB.delete('transactions', t.id); } catch (_) {}
+            }
+          }
+          UIManager.showToast('Transacciones borradas', 'success');
+          renderTransactionsList();
+          renderTransactionsSummary();
+          initCategoryFilter();
+        } catch (e) {
+          console.error('Error al borrar todas las transacciones:', e);
+          UIManager.showToast('Error al borrar transacciones', 'error');
+        }
       });
     }
 
@@ -353,6 +380,10 @@
 
     return list.filter(t => {
       const d = new Date(t.date);
+      // Excluir financiaciones SIEMPRE en pestaña Transacciones
+      const catLower = (t.category || '').toLowerCase();
+      const isLoanCategory = catLower.includes('préstamo') || catLower.includes('prestamo') || catLower.includes('préstamos') || catLower.includes('prestamos');
+      if (t.loanId || isLoanCategory) return false;
       if (start && d < start) return false;
       if (end && d > end) return false;
       if (typeVal && (t.type || t.kind) !== typeVal) return false;
@@ -390,7 +421,15 @@
     const dataList = document.getElementById('categories-list');
     if (!dataList) return;
     const list = await getAllTransactions();
-    const cats = Array.from(new Set(list.map(t => (t.category || '').trim()).filter(Boolean))).sort();
+    const cats = Array.from(new Set(
+      list
+        .map(t => (t.category || '').trim())
+        .filter(Boolean)
+        .filter(c => {
+          const lc = c.toLowerCase();
+          return !(lc.includes('préstamo') || lc.includes('prestamo'));
+        })
+    )).sort();
     dataList.innerHTML = cats.map(c => `<option value="${c}"></option>`).join('');
   }
 
@@ -1734,35 +1773,60 @@
 
   function showLoanScheduleModal(loan) {
     if (!loan) return;
-    const schedule = Array.isArray(loan.schedule) && loan.schedule.length
+    
+    // Generar o usar el cuadro de amortización existente
+    let schedule = Array.isArray(loan.schedule) && loan.schedule.length
       ? loan.schedule
-      : (function(){
-          const start = loan.firstInstallmentDate ? new Date(loan.firstInstallmentDate) : (loan.startDate ? new Date(loan.startDate) : new Date());
-          const n = Number(loan.installments) || 0;
-          const per = (loan.installmentAmount || (loan.amount && n ? loan.amount / n : 0));
-          const rows = [];
-          for (let i = 0; i < n; i++) {
-            const d = new Date(start);
-            d.setMonth(d.getMonth() + i);
-            rows.push({ idx: i + 1, date: d.toISOString().slice(0,10), amount: per });
-          }
-          return rows;
-        })();
+      : null;
+    
+    // Si no hay cuadro o no tiene las nuevas columnas, regenerarlo
+    if (!schedule || !schedule[0] || typeof schedule[0].interest === 'undefined') {
+      if (typeof LoansManager !== 'undefined' && LoansManager.computeSchedule) {
+        schedule = LoansManager.computeSchedule(loan);
+      } else {
+        // Fallback simple si no está disponible LoansManager
+        const start = loan.firstInstallmentDate ? new Date(loan.firstInstallmentDate) : (loan.startDate ? new Date(loan.startDate) : new Date());
+        const n = Number(loan.installments) || 0;
+        const per = (loan.installmentAmount || (loan.amount && n ? loan.amount / n : 0));
+        schedule = [];
+        for (let i = 0; i < n; i++) {
+          const d = new Date(start);
+          d.setMonth(d.getMonth() + i);
+          schedule.push({ idx: i + 1, date: d.toISOString().slice(0,10), amount: per, interest: 0, principal: per, pendingAmount: 0 });
+        }
+      }
+    }
+    
     const table = schedule.length ? schedule.map(r => `
       <tr>
         <td>#${r.idx}</td>
         <td><input type="date" class="sched-date" value="${r.date}" data-idx="${r.idx}" /></td>
         <td><input type="number" step="0.01" class="sched-amount" value="${Number(r.amount || 0)}" data-idx="${r.idx}" /></td>
+        <td class="sched-interest">${formatAmount(r.interest || 0)}</td>
+        <td class="sched-principal">${formatAmount(r.principal || 0)}</td>
+        <td class="sched-pending">${formatAmount(r.pendingAmount || 0)}</td>
       </tr>
-    `).join('') : '<tr><td colspan="3">Sin cuotas definidas.</td></tr>';
+    `).join('') : '<tr><td colspan="6">Sin cuotas definidas.</td></tr>';
+    
     const html = `
       <div class="loan-schedule">
         <h3>${loan.name || 'Financiación'}</h3>
-        <p class="hint">Modifica fechas e importes de cada cuota. Guarda para aplicar cambios.</p>
-        <table class="preview-table">
-          <thead><tr><th>#</th><th>Fecha</th><th>Importe</th></tr></thead>
-          <tbody>${table}</tbody>
-        </table>
+        <p class="hint">Modifica fechas e importes de cada cuota. Los intereses, capital y pendiente se calculan automáticamente.</p>
+        <div class="table-container">
+          <table class="preview-table amortization-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Fecha</th>
+                <th>Cuota</th>
+                <th>Intereses</th>
+                <th>Capital</th>
+                <th>Pendiente</th>
+              </tr>
+            </thead>
+            <tbody>${table}</tbody>
+          </table>
+        </div>
       </div>
     `;
     if (typeof showModal === 'function') {
@@ -1942,4 +2006,5 @@
   window.loadForecast = loadForecast;
   window.loadFinancing = loadFinancing;
   window.loadSettings = loadSettings;
+  window.getAllTransactions = getAllTransactions;
 })();
