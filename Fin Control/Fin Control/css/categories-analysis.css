@@ -1,0 +1,287 @@
+/* categories-analysis.css - Estilos para análisis por categorías */
+
+.categories-analysis {
+    padding: 1rem;
+}
+
+.analysis-filters {
+    background: var(--card-bg, #fff);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.filter-row {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.filter-row select {
+    min-width: 150px;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color, #ddd);
+    border-radius: 4px;
+    background: var(--input-bg, #fff);
+    color: var(--text-color, #333);
+}
+
+.analysis-summary {
+    margin-bottom: 2rem;
+}
+
+.summary-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.summary-card {
+    background: var(--card-bg, #fff);
+    border-radius: 8px;
+    padding: 1.5rem;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    border-left: 4px solid var(--primary-color, #4361ee);
+}
+
+.summary-card.income {
+    border-left-color: #4cc9f0;
+}
+
+.summary-card.expense {
+    border-left-color: #f72585;
+}
+
+.summary-card.positive {
+    border-left-color: #4cc9f0;
+}
+
+.summary-card.negative {
+    border-left-color: #f72585;
+}
+
+.summary-card h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.9rem;
+    color: var(--text-secondary, #666);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.summary-card .amount {
+    font-size: 1.5rem;
+    font-weight: bold;
+    margin: 0;
+    color: var(--text-color, #333);
+}
+
+.categories-chart-container {
+    background: var(--card-bg, #fff);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    height: 400px;
+}
+
+.categories-details {
+    background: var(--card-bg, #fff);
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.category-details-list h3 {
+    margin: 0 0 1.5rem 0;
+    color: var(--text-color, #333);
+}
+
+.category-detail-item {
+    border-bottom: 1px solid var(--border-color, #eee);
+    padding: 1rem 0;
+}
+
+.category-detail-item:last-child {
+    border-bottom: none;
+}
+
+.category-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.category-header h4 {
+    margin: 0;
+    color: var(--text-color, #333);
+    font-size: 1.1rem;
+}
+
+.category-amounts {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+
+.category-amounts .income {
+    color: #4cc9f0;
+    font-weight: bold;
+}
+
+.category-amounts .expense {
+    color: #f72585;
+    font-weight: bold;
+}
+
+.category-amounts .percentage {
+    background: var(--primary-color, #4361ee);
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: bold;
+}
+
+.category-progress {
+    margin-bottom: 0.5rem;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--border-color, #eee);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4361ee, #f72585);
+    transition: width 0.3s ease;
+}
+
+.category-transactions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.category-transactions p {
+    margin: 0;
+    color: var(--text-secondary, #666);
+    font-size: 0.9rem;
+}
+
+.category-transaction-list {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color, #eee);
+}
+
+.transaction-mini {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border-light, #f5f5f5);
+    font-size: 0.9rem;
+}
+
+.transaction-mini:last-child {
+    border-bottom: none;
+}
+
+.transaction-mini .tx-date {
+    color: var(--text-secondary, #666);
+    min-width: 80px;
+}
+
+.transaction-mini .tx-desc {
+    flex: 1;
+    margin: 0 1rem;
+    color: var(--text-color, #333);
+}
+
+.transaction-mini .tx-amount {
+    font-weight: bold;
+    min-width: 80px;
+    text-align: right;
+}
+
+.transaction-mini .tx-amount.positive {
+    color: #4cc9f0;
+}
+
+.transaction-mini .tx-amount.negative {
+    color: #f72585;
+}
+
+.transaction-mini .tx-member {
+    background: var(--primary-color, #4361ee);
+    color: white;
+    padding: 0.2rem 0.5rem;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    margin-left: 0.5rem;
+}
+
+.more-transactions {
+    text-align: center;
+    color: var(--text-secondary, #666);
+    font-style: italic;
+    margin: 0.5rem 0 0 0;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .filter-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .filter-row select {
+        min-width: auto;
+    }
+    
+    .summary-cards {
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    }
+    
+    .category-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+    
+    .category-amounts {
+        flex-wrap: wrap;
+    }
+    
+    .transaction-mini {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
+    }
+    
+    .transaction-mini .tx-amount {
+        text-align: left;
+        min-width: auto;
+    }
+}
+
+/* Tema oscuro */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --card-bg: #2a2a2a;
+        --text-color: #fff;
+        --text-secondary: #ccc;
+        --border-color: #444;
+        --border-light: #333;
+        --input-bg: #333;
+    }
+}

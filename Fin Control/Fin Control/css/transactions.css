@@ -1,0 +1,204 @@
+/* transactions.css - Estilos específicos para la pestaña Transacciones */
+
+.transactions-view {
+  padding: 1rem;
+}
+
+.tx-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.tx-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.tx-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.tx-summary .card {
+  background: var(--card-bg, #fff);
+  border-radius: 10px;
+  padding: 1rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  border-left: 4px solid var(--primary-color, #4361ee);
+}
+
+.tx-summary .card h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #666);
+  text-transform: uppercase;
+}
+
+.tx-summary .card .amount {
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.tx-summary .income { border-left-color: #4cc9f0; }
+.tx-summary .expense { border-left-color: #f72585; }
+.tx-summary .balance { border-left-color: #00b894; }
+
+.tx-filters {
+  background: var(--card-bg, #fff);
+  border-radius: 10px;
+  padding: 0.75rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.tx-filters .filters-basic,
+.tx-filters .filters-advanced {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.5rem;
+}
+
+.tx-filters .filters-advanced {
+  border-top: 1px dashed var(--border-color, #ddd);
+  padding-top: 0.5rem;
+}
+
+.tx-filters .filters-advanced.collapsed {
+  display: none;
+}
+
+.tx-filters #toggle-advanced {
+  justify-self: start;
+}
+
+.tx-filters .form-control,
+.tx-add-form .row input,
+.tx-add-form .row select {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 6px;
+  background: var(--input-bg, #fff);
+}
+
+.tx-add-form .row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.tx-list {
+  background: var(--card-bg, #fff);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.tx-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-color, #eee);
+}
+
+.tx-item:last-child { border-bottom: none; }
+
+.tx-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
+.tx-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  background: var(--border-light, #f5f5f5);
+  color: var(--text-color, #333);
+}
+
+.chip.category { background: #eaf2ff; }
+.chip.member { background: #eafaf1; }
+
+.tx-amount {
+  font-weight: 700;
+}
+.tx-amount.pos { color: #00b894; }
+.tx-amount.neg { color: #d63031; }
+
+.tx-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.tx-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+}
+
+.empty-state {
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-secondary, #666);
+}
+
+@media (max-width: 768px) {
+  .tx-item { grid-template-columns: 1fr; }
+  .tx-actions { justify-content: flex-end; }
+}
+
+/* Chips para filtro de categorías */
+.transactions-view .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.transactions-view .chip.selectable {
+  cursor: pointer;
+  background: var(--chip-bg, #e8eef9);
+}
+
+.transactions-view .chip.selectable:hover {
+  background: var(--chip-bg-hover, #dbe7f7);
+}
+
+.transactions-view .chip.selected {
+  background: var(--chip-selected-bg, #cde1ff);
+  color: var(--chip-selected-fg, #0f172a);
+}
+
+.transactions-view .tx-filters #clear-categories {
+  margin-left: 8px;
+}
+
+/* Ordenación selector */
+#flt-sort {
+  min-width: 170px;
+}
