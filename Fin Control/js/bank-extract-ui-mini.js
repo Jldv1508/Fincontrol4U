@@ -40,13 +40,11 @@ const BankExtractUI = {
                 </div>
                 
                 <div class="form-group">
-                    <label for="extract-text">Texto del extracto</label>
-                    <textarea id="extract-text" class="form-control" rows="10"
-                        placeholder="Pega aquí el texto del extracto bancario..."></textarea>
+                    <p class="hint">La opción de pegar texto del extracto ha sido eliminada.</p>
+                    <p class="hint">Usa la carga de archivo en la sección Escanear: PDF/Excel/CSV.</p>
                 </div>
                 
                 <div class="form-actions">
-                    <button id="process-extract-btn" class="btn btn-primary">Procesar extracto</button>
                     <button id="cancel-extract-btn" class="btn btn-secondary">Cancelar</button>
                 </div>
             </div>
@@ -58,30 +56,7 @@ const BankExtractUI = {
             content: modalContent,
             size: 'large',
             onOpen: () => {
-                // Configurar eventos
-                document.getElementById('process-extract-btn').addEventListener('click', () => {
-                    const bankName = document.getElementById('bank-select').value;
-                    const extractDate = document.getElementById('extract-date').value;
-                    const extractText = document.getElementById('extract-text').value;
-                    
-                    if (!bankName || !extractText) {
-                        alert('Por favor, completa todos los campos');
-                        return;
-                    }
-                    
-                    // Procesar extracto
-                    const transactions = window.BankExtractManager.processExtract({
-                        bankName: bankName,
-                        date: extractDate,
-                        text: extractText
-                    });
-                    
-                    // Cerrar modal
-                    window.closeModal();
-                    
-                    // Mostrar resultados
-                    this.showExtractResults(transactions);
-                });
+                // Se elimina el procesamiento por texto pegado. Usa la carga de archivo en Escanear.
                 
                 document.getElementById('cancel-extract-btn').addEventListener('click', () => {
                     window.closeModal();

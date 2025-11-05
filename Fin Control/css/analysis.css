@@ -1,0 +1,22 @@
+/* Estilos básicos para la vista de análisis mensual */
+.monthly-analysis .analysis-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+.monthly-analysis .filters { display: flex; gap: .5rem; align-items: center; }
+.summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: .75rem; margin-bottom: 1rem; }
+.summary-card { background: var(--card-bg, #fff); border-radius: 8px; padding: .75rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.summary-card.income h3 { color: #4cc9f0; }
+.summary-card.expense h3 { color: #f72585; }
+.summary-card.balance h3 { color: #4361ee; }
+.monthly-table-wrap .table { width: 100%; border-collapse: collapse; }
+.monthly-table-wrap th, .monthly-table-wrap td { padding: .5rem; border-bottom: 1px solid var(--border-color, #eee); text-align: right; }
+.monthly-table-wrap th:first-child, .monthly-table-wrap td:first-child { text-align: left; }
+.category-month-wrap { margin-top: 1rem; }
+.month-block { background: var(--card-bg, #fff); border-radius: 8px; padding: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; }
+.cat-row { display: grid; grid-template-columns: 2fr 1fr 2fr; align-items: center; gap: .5rem; padding: .25rem 0; border-bottom: 1px solid var(--border-light, #f5f5f5); }
+.cat-row:last-child { border-bottom: none; }
+.chip.member { background: var(--primary-color, #4361ee); color: #fff; padding: .15rem .4rem; border-radius: 10px; font-size: .75rem; margin-right: .25rem; display: inline-block; }
+.empty-state { color: var(--text-secondary, #666); }

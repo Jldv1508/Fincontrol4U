@@ -42,9 +42,9 @@
 }
 
 .comparison-table th {
-    background-color: #f8f9fc;
+    background-color: var(--surface-color);
     font-weight: 600;
-    color: #4e73df;
+    color: var(--primary-color, #4e73df);
 }
 
 .comparison-table tr:last-child td {
@@ -52,7 +52,7 @@
 }
 
 .comparison-table tr:hover {
-    background-color: #f1f5ff;
+    background-color: var(--surface-color);
 }
 
 /* Mejor precio */
@@ -78,7 +78,7 @@
 }
 
 .best-store-card {
-    background-color: #f8f9fc;
+    background-color: var(--surface-color);
     border-left: 4px solid #4e73df;
     padding: 15px;
     border-radius: 5px;
@@ -148,7 +148,7 @@
 }
 
 .product-detail-card {
-    background-color: #fff;
+    background-color: var(--card-bg);
     border-radius: 5px;
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
     padding: 15px;

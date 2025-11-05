@@ -40,52 +40,26 @@
   }
 
   function loadContent(tab) {
-    const t = (tab || 'dashboard').toLowerCase();
+    const t = (tab || 'transactions').toLowerCase();
     try {
       switch (t) {
-        case 'dashboard':
-          if (typeof window.loadDashboard === 'function') return window.loadDashboard();
-          break;
         case 'transactions':
           if (typeof window.loadTransactions === 'function') return window.loadTransactions();
+          break;
+        case 'financing':
+          if (typeof window.loadFinancing === 'function') return window.loadFinancing();
           break;
         case 'subject':
           if (typeof window.loadSubjectTab === 'function') return window.loadSubjectTab();
           break;
-        case 'categories':
-          {
-            const main = ensureMain();
-            if (main) main.innerHTML = '<section class="categories-analysis"><h2>Cargando Categorías…</h2></section>';
-            if (typeof window.loadCategoriesAnalysis === 'function') {
-              try {
-                const p = window.loadCategoriesAnalysis();
-                // Fallback: si en 1500ms no se ha renderizado, mostramos aviso
-                setTimeout(() => {
-                  const hasSummary = document.getElementById('analysis-summary');
-                  if (!hasSummary) {
-                    const m = ensureMain();
-                    if (m) m.innerHTML = '<section class="categories-analysis"><h2>Categorías</h2><p class="empty-state">No se pudo cargar el análisis. Comprueba que hay transacciones.</p></section>';
-                    UIManager.showToast('No se pudo cargar Categorías', 'warning');
-                  }
-                }, 1500);
-                return p;
-              } catch (e) {
-                console.error('Error al cargar análisis de categorías:', e);
-                const m = ensureMain();
-                if (m) m.innerHTML = '<section class="categories-analysis"><h2>Categorías</h2><p class="empty-state">Error cargando el análisis</p></section>';
-                UIManager.showToast('Error cargando Categorías', 'error');
-              }
-            }
-          }
+        case 'analysis':
+          if (typeof window.loadMonthlyAnalysis === 'function') return window.loadMonthlyAnalysis();
           break;
         case 'scanner':
           if (typeof window.loadScanner === 'function') return window.loadScanner();
           break;
         case 'forecast':
           if (typeof window.loadForecast === 'function') return window.loadForecast();
-          break;
-        case 'financing':
-          if (typeof window.loadFinancing === 'function') return window.loadFinancing();
           break;
         case 'settings':
           if (typeof window.loadSettings === 'function') return window.loadSettings();

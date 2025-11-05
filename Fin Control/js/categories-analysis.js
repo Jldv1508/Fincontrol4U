@@ -68,12 +68,24 @@ function initializeCategoryFilters() {
 }
 
 async function loadCategoryAnalysis() {
-    const summaryContainer = document.getElementById('analysis-summary');
-    const detailsContainer = document.getElementById('categories-details');
+  const summaryContainer = document.getElementById('analysis-summary');
+  const detailsContainer = document.getElementById('categories-details');
+  const chartContainer = document.querySelector('.categories-chart-container');
     
     if (!summaryContainer || !detailsContainer) return;
     
     try {
+        // Asegurar que la BD esté lista antes de cargar
+        if (typeof DB !== 'undefined' && !DB.db && typeof DB.init === 'function') {
+            // Espera activa breve hasta que DB.db esté disponible
+            const startTs = Date.now();
+            while (!DB.db && Date.now() - startTs < 1500) {
+                // Evitar bloquear el hilo
+                /* eslint-disable no-await-in-loop */
+                await new Promise(r => setTimeout(r, 100));
+            }
+        }
+        
         // Obtener filtros
         const memberFilter = document.getElementById('member-filter')?.value || '';
         const periodFilter = document.getElementById('period-filter')?.value || 'current-month';
@@ -84,17 +96,47 @@ async function loadCategoryAnalysis() {
         // Filtrar transacciones
         const filteredTransactions = filterTransactionsByPeriodAndMember(allTransactions, periodFilter, memberFilter);
         
-        // Generar análisis
-        const analysis = generateCategoryAnalysis(filteredTransactions);
-        
-        // Mostrar resumen
-        summaryContainer.innerHTML = renderAnalysisSummary(analysis, memberFilter, periodFilter);
-        
-        // Mostrar detalles por categoría
-        detailsContainer.innerHTML = renderCategoryDetails(analysis);
-        
-        // Actualizar gráfico
-        updateCategoriesChart(analysis);
+    // Generar análisis
+    const analysis = generateCategoryAnalysis(filteredTransactions);
+
+    // Caso sin datos: mensaje claro y gráfico oculto
+    const isEmpty = !filteredTransactions.length || !analysis.sortedCategories || analysis.sortedCategories.length === 0;
+    if (isEmpty) {
+      summaryContainer.innerHTML = `
+        <div class="summary-cards">
+          <div class="summary-card">
+            <h3>Período</h3>
+            <p>${{
+              'current-month': 'Mes actual',
+              'last-month': 'Mes anterior',
+              'current-year': 'Año actual',
+              'last-year': 'Año anterior',
+              'all': 'Todo el período'
+            }[periodFilter] || 'Período seleccionado'}${memberFilter ? ` - ${memberFilter}` : ' - Todos los miembros'}</p>
+          </div>
+          <div class="summary-card income"><h3>Ingresos</h3><p>€0,00</p></div>
+          <div class="summary-card expense"><h3>Gastos</h3><p>€0,00</p></div>
+          <div class="summary-card balance"><h3>Balance</h3><p>€0,00</p></div>
+          <div class="summary-card"><h3>Transacciones</h3><p>0</p></div>
+        </div>
+        <p class="empty-state">No hay transacciones para el período y miembro seleccionados.</p>
+      `;
+      detailsContainer.innerHTML = '<p class="empty-state">Sin detalles de categorías disponibles.</p>';
+      if (chartContainer) chartContainer.innerHTML = '<div class="empty-state">Gráfico no disponible por falta de datos.</div>';
+      if (window.UIManager && typeof UIManager.showToast === 'function') {
+        UIManager.showToast('No hay datos en Categorías para los filtros seleccionados', 'info');
+      }
+      return;
+    }
+
+    // Mostrar resumen
+    summaryContainer.innerHTML = renderAnalysisSummary(analysis, memberFilter, periodFilter);
+
+    // Mostrar detalles por categoría
+    detailsContainer.innerHTML = renderCategoryDetails(analysis);
+
+    // Actualizar gráfico
+    updateCategoriesChart(analysis);
         
     } catch (error) {
         console.error('Error cargando análisis de categorías:', error);

@@ -50,6 +50,17 @@
     return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(num);
   }
 
+  // Identificar capital inicial de préstamo (debe excluirse de Previsión de gastos)
+  function isLoanCapitalTransaction(t) {
+    if (!t) return false;
+    const hasLoan = !!t.loanId;
+    const desc = String(t.description || '').toLowerCase();
+    const isInstallment = desc.includes('pago de cuota');
+    const isCapitalHint = desc.includes('concesión de préstamo') || desc.includes('recepción de préstamo');
+    // Si está vinculado a préstamo y NO es un pago de cuota, lo consideramos capital
+    return hasLoan && !isInstallment && (isCapitalHint || (t.type || t.kind) === 'expense');
+  }
+
   function loadTransactions() {
     const main = ensureMain();
     if (!main) return;
@@ -58,8 +69,11 @@
         <div class="tx-toolbar">
           <div class="tx-title"><i class="fas fa-exchange-alt"></i> <span>Transacciones</span></div>
           <div class="tx-actions">
-            <button id="tx-add-btn" class="btn btn-primary"><i class="fas fa-plus"></i> Añadir</button>
             <button id="tx-delete-all-btn" class="btn"><i class="fas fa-trash"></i> Borrar todo</button>
+            <button id="tx-select-toggle" class="btn"><i class="fas fa-check-square"></i> Seleccionar</button>
+            <button id="tx-select-all" class="btn"><i class="fas fa-list"></i> Seleccionar todo</button>
+            <button id="tx-edit-selected" class="btn"><i class="fas fa-pen"></i> Editar seleccionados</button>
+            <button id="tx-delete-selected" class="btn"><i class="fas fa-trash-alt"></i> Eliminar seleccionados</button>
           </div>
         </div>
 
@@ -114,7 +128,7 @@
               <option value="Todos">Todos</option>
             </select>
             <input type="text" id="tx-desc" placeholder="Descripción" />
-            <button type="submit" class="btn btn-primary"><i class="fas fa-plus"></i> Añadir manualmente</button>
+            <button type="submit" class="btn btn-primary"><i class="fas fa-plus"></i> Añadir transacción</button>
           </div>
         </form>
 
@@ -160,7 +174,7 @@
           category,
           member,
           description,
-          date: new Date().toISOString()
+          date: new Date().toISOString().slice(0,10)
         };
         try {
           await DB.add('transactions', tx);
@@ -182,13 +196,7 @@
       });
     }
 
-    // Botón añadir (focus al formulario)
-    const addBtn = document.getElementById('tx-add-btn');
-    if (addBtn) {
-      addBtn.addEventListener('click', () => {
-        document.getElementById('tx-amount')?.focus();
-      });
-    }
+    // Eliminado botón de añadir manual en la barra de herramientas
 
     // Botón borrar todo
     const deleteAllBtn = document.getElementById('tx-delete-all-btn');
@@ -286,10 +294,126 @@
       });
     }
 
+  // Inicializar selección múltiple
+  setupSelectionButtons();
   // Pintar listado inicialmente
   loadFilters();
   renderTransactionsList();
   renderTransactionsSummary();
+  }
+
+  // ===== Selección múltiple =====
+  let selectionMode = false;
+  const selectedIds = new Set();
+
+  function setupSelectionButtons() {
+    const toggleBtn = document.getElementById('tx-select-toggle');
+    const selAllBtn = document.getElementById('tx-select-all');
+    const editSelBtn = document.getElementById('tx-edit-selected');
+    const delSelBtn = document.getElementById('tx-delete-selected');
+    if (toggleBtn) toggleBtn.addEventListener('click', () => { selectionMode = !selectionMode; renderTransactionsList(); UIManager?.showToast && UIManager.showToast(selectionMode ? 'Modo selección activado' : 'Modo selección desactivado', 'info'); });
+    if (selAllBtn) selAllBtn.addEventListener('click', async () => {
+      if (!selectionMode) { UIManager?.showToast && UIManager.showToast('Activa la selección primero', 'warning'); return; }
+      const list = await getAllTransactions();
+      const filtered = getFilteredTransactions(list);
+      filtered.forEach(t => selectedIds.add(t.id));
+      renderTransactionsList();
+    });
+    if (editSelBtn) editSelBtn.addEventListener('click', () => { if (!selectionMode) { UIManager?.showToast && UIManager.showToast('Activa la selección primero', 'warning'); return; } openBulkEditModal(); });
+    if (delSelBtn) delSelBtn.addEventListener('click', () => { if (!selectionMode) { UIManager?.showToast && UIManager.showToast('Activa la selección primero', 'warning'); return; } confirmDeleteSelected(); });
+  }
+
+  function clearSelection() { selectedIds.clear(); }
+
+  async function openBulkEditModal() {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) { UIManager?.showToast && UIManager.showToast('No hay elementos seleccionados', 'info'); return; }
+    const memberOptions = (typeof FamilyManager !== 'undefined') ? FamilyManager.generateMemberOptions('') : '<option value="">(sin cambio)</option><option value="Todos">Todos</option>';
+    const content = `
+      <form id="bulk-edit-form" class="form-grid">
+        <label>Tipo</label>
+        <select id="bulk-type" class="form-control">
+          <option value="">(sin cambio)</option>
+          <option value="expense">Gasto</option>
+          <option value="income">Ingreso</option>
+        </select>
+        <label>Categoría</label>
+        <input type="text" id="bulk-category" class="form-control" placeholder="(sin cambio)" />
+        <label>Miembro</label>
+        <select id="bulk-member" class="form-control">${memberOptions}</select>
+      </form>
+      <p class="help">Se aplicarán los cambios a ${ids.length} transacciones seleccionadas. Los campos en blanco no se modifican.</p>
+    `;
+    if (typeof showModal === 'function') {
+      showModal({
+        title: 'Editar seleccionados',
+        content,
+        size: 'medium',
+        buttons: [
+          { text: 'Cancelar', type: 'secondary', onClick: () => closeModal() },
+          { text: 'Guardar', type: 'primary', onClick: async () => {
+              const type = document.getElementById('bulk-type').value;
+              const category = document.getElementById('bulk-category').value.trim();
+              const member = document.getElementById('bulk-member').value;
+              await applyBulkEdit({ type: type || null, category: category || null, member: member || null });
+              closeModal();
+            } }
+        ]
+      });
+    } else {
+      const ok = confirm(`Aplicar cambios a ${ids.length} transacciones?`);
+      if (ok) await applyBulkEdit({ type: null, category: null, member: null });
+    }
+  }
+
+  async function applyBulkEdit(changes) {
+    const ids = Array.from(selectedIds);
+    let updated = 0;
+    for (const id of ids) {
+      try {
+        const tx = await DB.get('transactions', id);
+        if (!tx) continue;
+        const next = { ...tx };
+        if (changes.type) next.type = changes.type;
+        if (changes.category) next.category = changes.category;
+        if (changes.member !== null && changes.member !== undefined && changes.member !== '') next.member = changes.member;
+        next.updated_at = new Date().toISOString();
+        await DB.add('transactions', next);
+        updated++;
+      } catch (e) { console.error('Error editando selección', e); }
+    }
+    UIManager?.showToast && UIManager.showToast(`Se actualizaron ${updated} transacciones`, 'success');
+    clearSelection();
+    renderTransactionsList();
+    renderTransactionsSummary();
+  }
+
+  async function confirmDeleteSelected() {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) { UIManager?.showToast && UIManager.showToast('No hay elementos seleccionados', 'info'); return; }
+    const proceed = async () => {
+      let removed = 0;
+      for (const id of ids) {
+        try { await DB.delete('transactions', id); removed++; } catch (_) {}
+      }
+      UIManager?.showToast && UIManager.showToast(`Eliminadas ${removed} transacciones`, 'success');
+      clearSelection();
+      renderTransactionsList();
+      renderTransactionsSummary();
+    };
+    if (typeof showModal === 'function') {
+      showModal({
+        title: 'Eliminar seleccionados',
+        content: `<p>¿Seguro que deseas eliminar ${ids.length} transacciones seleccionadas?</p>`,
+        size: 'small',
+        buttons: [
+          { text: 'Cancelar', type: 'secondary', onClick: () => closeModal() },
+          { text: 'Eliminar', type: 'danger', onClick: async () => { await proceed(); closeModal(); } }
+        ]
+      });
+    } else {
+      if (confirm(`Eliminar ${ids.length} transacciones seleccionadas?`)) await proceed();
+    }
   }
 
   async function renderTransactionsList() {
@@ -322,6 +446,7 @@
         const desc = t.description || t.concept || '';
         const amt = formatAmount(t.amount);
         const sign = (t.type || t.kind) === 'expense' ? '-' : '+';
+        const chk = selectionMode ? `<input type="checkbox" class="tx-select" ${selectedIds.has(t.id)?'checked':''} data-id="${t.id}" title="Seleccionar" />` : '';
         return `
           <div class="tx-item" data-id="${t.id}">
             <div>
@@ -330,6 +455,7 @@
                 <span class="tx-amount ${sign === '-' ? 'neg' : 'pos'}">${sign}${amt}</span>
               </div>
               <div class="tx-body">
+                ${chk}
                 <span class="chip category"><i class="fas fa-tag"></i> ${cat}</span>
                 ${t.member ? `<span class="chip member"><i class="fas fa-user"></i> ${t.member}</span>` : ''}
                 <span class="tx-desc">${desc}</span>
@@ -356,6 +482,16 @@
         } else if (action === 'delete') {
           confirmDeleteTransaction(id);
         }
+      });
+    });
+
+    // Selección de checkboxes
+    wrap.querySelectorAll('input.tx-select').forEach((chk) => {
+      chk.addEventListener('change', () => {
+        const id = chk.getAttribute('data-id');
+        if (!id) return;
+        if (chk.checked) selectedIds.add(id);
+        else selectedIds.delete(id);
       });
     });
   }
@@ -674,13 +810,6 @@
     main.innerHTML = `
       <section class="scanner-view">
         <h2>Escáner de recibos</h2>
-        <div class="scanner-actions">
-          <button id="scan-camera-btn" class="btn primary"><i class="fas fa-camera"></i> Escanear con cámara</button>
-          <label class="btn">
-            <i class="fas fa-file-image"></i> Subir imagen
-            <input type="file" id="scan-image-input" accept="image/*" style="display:none" />
-          </label>
-        </div>
         <div id="scanner-status" class="scanner-status"></div>
         <hr />
         <div class="statement-actions">
@@ -694,50 +823,89 @@
         </div>
       </section>
     `;
+    // Quitada opción de subir imagen y OCR; se mantiene texto pegado y archivos
 
-    const cameraBtn = document.getElementById('scan-camera-btn');
-    const imageInput = document.getElementById('scan-image-input');
-
-    if (cameraBtn) {
-      cameraBtn.addEventListener('click', async () => {
-        try {
-          if (window.OCRManager && typeof window.OCRManager.init === 'function') {
-            await window.OCRManager.init();
-          }
-        } catch (e) {
-          console.warn('No se pudo inicializar OCR:', e);
-        }
-        if (window.OCRManager && typeof window.OCRManager.showScanInterface === 'function') {
-          window.OCRManager.showScanInterface();
-        } else {
-          document.getElementById('scanner-status').textContent = 'OCR no disponible. Revisa que ocr.js esté cargado.';
-          if (typeof showNotification === 'function') {
-            showNotification('OCR no disponible', 'warning');
-          }
-        }
-      });
-    }
-
-    if (imageInput) {
-      imageInput.addEventListener('change', async (e) => {
-        const file = e.target.files && e.target.files[0];
-        if (!file) return;
-        try {
-          if (window.OCRManager && typeof window.OCRManager.init === 'function' && !window.OCRManager.state?.isInitialized) {
-            await window.OCRManager.init();
-          }
-          if (window.OCRManager && typeof window.OCRManager.processUploadedImage === 'function') {
-            window.OCRManager.processUploadedImage(file);
-          } else {
-            document.getElementById('scanner-status').textContent = 'OCR no disponible para imágenes.';
-          }
-        } catch (err) {
-          console.error('Error procesando imagen:', err);
-          document.getElementById('scanner-status').textContent = 'Error al procesar la imagen. Intenta con otra imagen o revisa conexión.';
-          if (typeof showNotification === 'function') {
-            showNotification('Error OCR en imagen', 'error');
-          }
-        }
+    // Pegar texto de extracto (procesado inmediato)
+    const pasteBtn = document.getElementById('paste-extract-btn');
+    if (pasteBtn) {
+      pasteBtn.addEventListener('click', () => {
+        const content = `
+          <div class="paste-extract-modal">
+            <div class="form-group">
+              <label>Banco</label>
+              <input type="text" id="paste-bank" placeholder="BBVA / Santander / Genérico" />
+            </div>
+            <div class="form-group">
+              <label>Fecha del extracto</label>
+              <input type="date" id="paste-date" value="${new Date().toISOString().slice(0,10)}" />
+            </div>
+            <div class="form-group">
+              <label>Texto del extracto</label>
+              <textarea id="paste-text" rows="10" placeholder="Pega aquí el texto del extracto..."></textarea>
+            </div>
+          </div>`;
+        showModal({
+          title: 'Pegar texto de extracto',
+          content,
+          size: 'large',
+          buttons: [
+            { text: 'Cancelar', type: 'secondary', onClick: () => closeModal() },
+            { text: 'Procesar', type: 'primary', onClick: async () => {
+                try {
+                  const bank = document.getElementById('paste-bank').value || 'Genérico';
+                  const date = document.getElementById('paste-date').value || new Date().toISOString().slice(0,10);
+                  const text = document.getElementById('paste-text').value || '';
+                  if (!text.trim()) { if (typeof showNotification === 'function') showNotification('Pega el texto del extracto', 'warning'); return; }
+                  let rows = [];
+                  if (window.BankExtractManager && typeof window.BankExtractManager.extractTransactionsFromText === 'function') {
+                    rows = window.BankExtractManager.extractTransactionsFromText(text, bank, date) || [];
+                  } else if (typeof extractTransactionsFromText === 'function') {
+                    // Fallback del OCR
+                    rows = extractTransactionsFromText(text) || [];
+                  } else {
+                    rows = [];
+                  }
+                  closeModal();
+                  if (rows.length) {
+                    const headers = Object.keys(rows[0]);
+                    showStatementPreviewModal(rows, headers, async (map, filters) => {
+                      let txs = rows.map(r => toTransactionFromRow(r, map)).filter(Boolean);
+                      if (filters && (filters.start || filters.end)) {
+                        const start = filters.start ? new Date(filters.start) : null;
+                        const end = filters.end ? new Date(filters.end) : null;
+                        txs = txs.filter(t => {
+                          const d = new Date(t.date);
+                          return (!start || d >= start) && (!end || d <= end);
+                        });
+                      }
+                      let saved = 0;
+                      for (const t of txs) {
+                        try { if (window.DB && typeof DB.add === 'function') { await DB.add('transactions', t); saved++; } }
+                        catch(e){ console.error('Error guardando transacción pegada', e); }
+                      }
+                      const summary = summarizeByCategory(txs);
+                      const details = txs.reduce((acc, t) => {
+                        const c = t.category || 'otros';
+                        acc[c] = acc[c] || [];
+                        acc[c].push({ description: t.description, amount: t.amount, type: t.type });
+                        return acc;
+                      }, {});
+                      const summaryHtml = renderCategorySummary(summary);
+                      const detailsHtml = renderCategoryDetails(details);
+                      const main = ensureMain();
+                      if (main) main.innerHTML = `<section class="scanner-view"><h2>Resultado de importación</h2><p class="hint">Añadidos ${saved}/${txs.length} movimientos</p>${summaryHtml}${detailsHtml}</section>`;
+                      if (typeof showNotification === 'function') showNotification(`Añadidos ${saved}/${txs.length} movimientos`, 'success');
+                    });
+                  } else {
+                    if (typeof showNotification === 'function') showNotification('No se detectaron movimientos en el texto pegado', 'warning');
+                  }
+                } catch (err) {
+                  console.error('Error procesando extracto pegado:', err);
+                  if (typeof showNotification === 'function') showNotification('Error al procesar el texto pegado', 'error');
+                }
+              }}
+          ]
+        });
       });
     }
 
@@ -803,34 +971,57 @@
     if (!main) return;
     main.innerHTML = `
       <section class="forecast-view">
-        <h2>Previsión</h2>
-        <p class="hint">Proyección basada en históricos y calendario de gastos.</p>
+        <h2>Previsión financiera</h2>
         <div class="card chart-card">
-          <h3>Previsión de Ingresos y Gastos (3 meses)</h3>
+          <h3>Proyección avanzada de ingresos y gastos (6 meses)</h3>
+          <div class="filters-basic">
+            <label>Miembro:</label>
+            <select id="forecast-member" class="form-control"></select>
+            <button id="applyForecastFilters" class="btn"><i class="fas fa-filter"></i> Aplicar</button>
+          </div>
           <div class="chart-wrapper">
             <canvas id="forecastChart"></canvas>
           </div>
         </div>
         <div class="card">
-          <h3>Calendario de gastos del año actual</h3>
+          <h3>Calendario anual de gastos por categorías</h3>
           <div id="forecastCalendar" class="calendar-grid"></div>
         </div>
         <div class="card">
-          <h3>Forecast editable del próximo año</h3>
-          <p class="hint">Edita los importes mensuales previstos y guarda tu plan.</p>
+          <h3>Presupuesto de gastos</h3>
+          <div id="expenseBudget"></div>
+          <div class="actions">
+            <button id="saveExpenseBudget" class="btn"><i class="fas fa-save"></i> Guardar presupuesto</button>
+            <button id="applyBudgetToForecast" class="btn"><i class="fas fa-arrow-down"></i> Aplicar al forecast</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Plan editable del próximo año</h3>
           <div id="editableForecast"></div>
           <div class="actions">
-            <button id="saveForecastPlan" class="btn primary"><i class="fas fa-save"></i> Guardar plan</button>
+            <button id="saveForecastPlan" class="btn btn-primary"><i class="fas fa-save"></i> Guardar plan</button>
+            <label><input type="checkbox" id="autoForecastEmerging" /> Relleno automático con gastos emergentes</label>
+            <button id="autoFillForecast" class="btn"><i class="fas fa-magic"></i> Rellenar automáticamente</button>
+            <span>Umbral emergente (%)</span>
+            <input id="emergingThreshold" type="number" min="0" max="500" step="10" value="150" />
+            <span>Ajuste máximo (%)</span>
+            <input id="maxUpliftPercent" type="number" min="0" max="100" step="5" value="20" />
           </div>
         </div>
       </section>
     `;
-    renderForecastChartSimple('forecastChart', 3);
+    renderForecastChartSimple('forecastChart', 6);
     renderForecastCalendar(new Date().getFullYear(), 'forecastCalendar');
+    renderExpenseBudgetSimple();
     renderEditableForecastNextYear();
+    setupForecastMemberFilter();
+    setupAutoForecastControls();
+    setupApplyBudgetToForecast();
   }
 
   async function loadFinancing() {
+    // Asegurar BD antes de operar
+    try { if (!window.DB?.db && typeof DB.init === 'function') { await DB.init(); } } catch (_) {}
     const main = ensureMain();
     if (!main) return;
     main.innerHTML = `
@@ -874,6 +1065,30 @@
     const addBtn = document.getElementById('add-loan-btn');
     if (addBtn) addBtn.addEventListener('click', showAddLoanModal);
     renderLoansList();
+    // Intento automático de recuperación si está vacío y hay copia local
+    try {
+      if (typeof LoansManager !== 'undefined' && LoansManager.getAll) {
+        const loansNow = await LoansManager.getAll();
+        const hasLocalBackup = !!(typeof window.BackupManager !== 'undefined' && window.BackupManager.getLocalBackupInfo());
+        if (Array.isArray(loansNow) && loansNow.length === 0 && hasLocalBackup) {
+          const raw = localStorage.getItem('fincontrol_backup_latest');
+          if (raw) {
+            const payload = JSON.parse(raw);
+            if (payload && payload.data && Array.isArray(payload.data.loans)) {
+              for (const loan of payload.data.loans) {
+                try { await DB.add('loans', loan); } catch (_) {}
+              }
+              if (typeof showNotification === 'function') {
+                showNotification('Financiaciones recuperadas desde copia local', 'success');
+              }
+              renderLoansList();
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Recuperación automática de financiaciones no disponible:', e);
+    }
   }
 
   function loadSettings() {
@@ -922,6 +1137,14 @@
             </label>
           </div>
         </div>
+        <div class="card">
+          <h3>Instalar aplicación</h3>
+          <p class="hint">Instala la app como PWA para usarla en ventana independiente y offline.</p>
+          <div class="actions">
+            <button id="settings-install-app-btn" class="btn primary"><i class="fas fa-download"></i> Instalar app</button>
+          </div>
+          <div id="install-help" class="hint">Si el botón no está disponible, usa el menú del navegador: "Instalar aplicación".</div>
+        </div>
       </section>
     `;
     const themeBtn = document.getElementById('settings-theme-toggle');
@@ -946,6 +1169,28 @@
         if (typeof showNotification === 'function') showNotification('Error al importar datos', 'error');
       }
     });
+    const settingsInstallBtn = document.getElementById('settings-install-app-btn');
+    if (settingsInstallBtn) {
+      const updateBtnState = () => {
+        if (window.PWAInstall && window.PWAInstall.available) {
+          settingsInstallBtn.disabled = false;
+          settingsInstallBtn.classList.add('primary');
+        } else {
+          settingsInstallBtn.disabled = false; // permitimos clic para mostrar ayuda
+          settingsInstallBtn.classList.remove('primary');
+        }
+      };
+      updateBtnState();
+      settingsInstallBtn.addEventListener('click', async () => {
+        if (window.PWAInstall && window.PWAInstall.available) {
+          try { await window.PWAInstall.prompt(); } catch (_) {}
+        } else {
+          if (typeof showNotification === 'function') {
+            showNotification('Usa el menú del navegador: "Instalar aplicación"', 'info');
+          }
+        }
+      });
+    }
     const importStatementInput = document.getElementById('import-statement-input');
     if (importStatementInput) importStatementInput.addEventListener('change', async (e) => {
       const file = e.target.files && e.target.files[0];
@@ -1082,41 +1327,63 @@
   }
 
   // ===== Previsión simple (sin ChartsManager) =====
-  async function renderForecastChartSimple(canvasId, months = 3) {
+  async function renderForecastChartSimple(canvasId, months = 6) {
     try {
       const el = document.getElementById(canvasId);
       if (!el) return;
       const all = await getAllTransactions();
-      // Agrupar últimos 6 meses
+      const memberSel = getSelectedForecastMember();
+      // Agrupar últimos 12 meses
       const now = new Date();
       const labels = [];
       const incomeSeries = [];
       const expenseSeries = [];
-      for (let i = 5; i >= 0; i--) {
+      for (let i = 11; i >= 0; i--) {
         const d = new Date(now);
         d.setMonth(d.getMonth() - i);
         const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
         const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0);
         const within = all.filter(t => {
           const td = new Date(t.date);
-          return td >= monthStart && td <= monthEnd;
+          const matchDate = td >= monthStart && td <= monthEnd;
+          const matchMember = !memberSel || !t.member || t.member === memberSel;
+          return matchDate && matchMember;
         });
         const inc = within.filter(t => (t.type || t.kind) === 'income').reduce((s,t)=> s + (Number(t.amount)||0), 0);
-        const exp = within.filter(t => (t.type || t.kind) === 'expense').reduce((s,t)=> s + (Number(t.amount)||0), 0);
+        const exp = within
+          .filter(t => (t.type || t.kind) === 'expense' && !isLoanCapitalTransaction(t))
+          .reduce((s,t)=> s + (Number(t.amount)||0), 0);
         labels.push(d.toLocaleString('es-ES', { month: 'short' }));
         incomeSeries.push(inc);
         expenseSeries.push(exp);
       }
-      const incomeAvg = incomeSeries.reduce((a,b)=>a+b,0) / (incomeSeries.length || 1);
-      const expenseAvg = expenseSeries.reduce((a,b)=>a+b,0) / (expenseSeries.length || 1);
+      // Proyección con regresión lineal simple
+      function projectLinear(series, futureCount) {
+        const n = series.length;
+        const xs = Array.from({length: n}, (_, i) => i);
+        const sumX = xs.reduce((s,x)=>s+x,0);
+        const sumY = series.reduce((s,y)=>s+y,0);
+        const sumXY = xs.reduce((s,x,i)=> s + x*series[i], 0);
+        const sumXX = xs.reduce((s,x)=> s + x*x, 0);
+        const denom = (n*sumXX - sumX*sumX) || 1;
+        const slope = (n*sumXY - sumX*sumY) / denom;
+        const intercept = (sumY - slope*sumX) / n;
+        const projections = [];
+        for (let k = 1; k <= futureCount; k++) {
+          const x = n - 1 + k;
+          const y = intercept + slope * x;
+          projections.push(Math.max(0, y));
+        }
+        return projections;
+      }
+      const incProj = projectLinear(incomeSeries, months);
+      const expProj = projectLinear(expenseSeries, months);
       for (let j = 0; j < months; j++) {
         const fd = new Date(now);
         fd.setMonth(now.getMonth() + j + 1);
         labels.push(fd.toLocaleString('es-ES', { month: 'short' }) + '*');
-        const incVar = (Math.random() * 0.2) - 0.1;
-        const expVar = (Math.random() * 0.2) - 0.1;
-        incomeSeries.push(incomeAvg * (1 + incVar));
-        expenseSeries.push(expenseAvg * (1 + expVar));
+        incomeSeries.push(incProj[j]);
+        expenseSeries.push(expProj[j]);
       }
       if (typeof Chart !== 'undefined') {
         new Chart(el.getContext('2d'), {
@@ -1124,11 +1391,31 @@
           data: {
             labels,
             datasets: [
-              { label: 'Ingresos', data: incomeSeries, borderColor: '#4CAF50', backgroundColor: 'rgba(76,175,80,0.1)' },
-              { label: 'Gastos', data: expenseSeries, borderColor: '#F44336', backgroundColor: 'rgba(244,67,54,0.1)' }
+              { 
+                label: 'Ingresos', 
+                data: incomeSeries, 
+                borderColor: '#22c55e', 
+                backgroundColor: 'transparent',
+                borderDash: (ctx) => ctx.dataIndex >= 12 ? [6,4] : []
+              },
+              { 
+                label: 'Gastos', 
+                data: expenseSeries, 
+                borderColor: '#ef4444', 
+                backgroundColor: 'transparent',
+                borderDash: (ctx) => ctx.dataIndex >= 12 ? [6,4] : []
+              }
             ]
           },
-          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' }, title: { display: true, text: 'Previsión de Ingresos y Gastos' } }, scales: { y: { beginAtZero: true } } }
+          options: { 
+            responsive: true, 
+            maintainAspectRatio: false, 
+            plugins: { 
+              legend: { position: 'bottom' }, 
+              title: { display: true, text: 'Previsión avanzada de ingresos y gastos' } 
+            }, 
+            scales: { y: { beginAtZero: true } } 
+          }
         });
       } else {
         // Fallback simple dibujando líneas en Canvas
@@ -1174,25 +1461,54 @@
     const container = document.getElementById(containerId);
     if (!container) return;
     const all = await getAllTransactions();
+    const memberSel = getSelectedForecastMember();
     const months = Array.from({ length: 12 }, (_, m) => m);
     const monthly = months.map((m) => {
       const start = new Date(year, m, 1);
       const end = new Date(year, m + 1, 0);
-      const within = all.filter(t => { const d = new Date(t.date); return d >= start && d <= end; });
-      const exp = within.filter(t => (t.type || t.kind) === 'expense').reduce((s,t)=> s+(Number(t.amount)||0), 0);
-      const inc = within.filter(t => (t.type || t.kind) === 'income').reduce((s,t)=> s+(Number(t.amount)||0), 0);
-      return { month: m, expense: exp, income: inc, count: within.length };
+      const within = all.filter(t => { 
+        const d = new Date(t.date);
+        const matchDate = d >= start && d <= end;
+        const matchMember = !memberSel || !t.member || t.member === memberSel;
+        return matchDate && matchMember;
+      });
+      const expensesOnly = within.filter(t => (t.type || t.kind) === 'expense' && !isLoanCapitalTransaction(t));
+      const byCat = expensesOnly.reduce((acc, t) => {
+        const cat = t.category || 'Sin categoría';
+        const amt = Number(t.amount) || 0;
+        acc[cat] = (acc[cat] || 0) + amt;
+        return acc;
+      }, {});
+      const totalExp = Object.values(byCat).reduce((s,v)=> s+v, 0);
+      const sortedCats = Object.entries(byCat).sort((a,b)=> b[1]-a[1]).slice(0,5);
+      return { month: m, categories: sortedCats, totalExpense: totalExp, count: within.length };
     });
+    function colorForCategory(name) {
+      let hash = 0;
+      for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash) + name.charCodeAt(i);
+      const hue = Math.abs(hash) % 360;
+      return `hsl(${hue}, 60%, 70%)`;
+    }
     container.innerHTML = months.map((m) => {
       const item = monthly[m];
       const name = new Date(year, m, 1).toLocaleString('es-ES', { month: 'long' });
+      const total = item.totalExpense || 0;
+      const bar = total > 0
+        ? `<div class="stacked-bar">${item.categories.map(([cat, val]) => {
+            const pct = Math.round((val/total)*100);
+            const color = colorForCategory(cat);
+            return `<span class="stacked-segment" title="${cat}: ${formatAmount(val)}" style="width:${pct}%;background:${color}"></span>`;
+          }).join('')}</div>`
+        : `<div class="stacked-bar empty"></div>`;
+      const chips = item.categories.map(([cat, val]) => `<span class="cat-chip"><i class="fas fa-tag"></i> ${cat}: ${formatAmount(val)}</span>`).join('');
       return `
         <div class="calendar-cell" data-month="${m}">
           <div class="cell-header">${name}</div>
           <div class="cell-body">
-            <div><strong>Gastos:</strong> ${formatAmount(item.expense)}</div>
-            <div><strong>Ingresos:</strong> ${formatAmount(item.income)}</div>
-            <div><small>${item.count} movimientos</small></div>
+            <div class="cell-total"><strong>Gastos:</strong> ${formatAmount(total)}</div>
+            ${bar}
+            <div class="cat-chips">${chips}</div>
+            <div class="cell-meta"><small>${item.count} movimientos</small></div>
           </div>
         </div>
       `;
@@ -1239,16 +1555,383 @@
     const inputs = months.map((m) => {
       const label = new Date(nextYear, m, 1).toLocaleString('es-ES', { month: 'short' });
       const val = Number(base[m] || 0);
-      return `<div class="forecast-input"><label>${label}</label><input type="number" step="0.01" data-month="${m}" value="${val}" /></div>`;
+      return `<div class="forecast-input"><label>${label}</label><input type="number" step="0.01" min="0" data-month="${m}" value="${val}" /></div>`;
     }).join('');
-    el.innerHTML = `<div class="forecast-inputs">${inputs}</div>`;
+    const summaryHtml = `
+      <div class="forecast-summary">
+        <div><strong>Total anual:</strong> <span id="forecastTotal">€0,00</span></div>
+        <div><strong>Promedio mensual:</strong> <span id="forecastAvg">€0,00</span></div>
+        <div class="quarter-summary" id="quarterSummary">
+          <span><strong>Q1:</strong> €0,00</span>
+          <span><strong>Q2:</strong> €0,00</span>
+          <span><strong>Q3:</strong> €0,00</span>
+          <span><strong>Q4:</strong> €0,00</span>
+        </div>
+      </div>
+      <div class="inline-actions">
+        <button id="dec5" class="btn"><i class="fas fa-minus"></i> -5%</button>
+        <button id="inc5" class="btn"><i class="fas fa-plus"></i> +5%</button>
+       <button id="resetZero" class="btn"><i class="fas fa-undo"></i> Reset</button>
+       <button id="copyCurrentYear" class="btn"><i class="fas fa-copy"></i> Copiar del año actual</button>
+        <button id="copyBudget" class="btn"><i class="fas fa-copy"></i> Copiar desde presupuesto</button>
+        <input id="annualTotalToDistribute" type="number" step="0.01" min="0" placeholder="Total anual (€)" />
+        <button id="distUniform" class="btn"><i class="fas fa-equals"></i> Distribuir uniforme</button>
+        <label for="patternWindow" style="margin-left:8px;">Ventana:</label>
+        <select id="patternWindow">
+          <option value="current">Año actual</option>
+          <option value="prev">Año anterior</option>
+          <option value="last12">Últimos 12 meses</option>
+        </select>
+        <label for="patternSource" style="margin-left:8px;">Fuente:</label>
+        <select id="patternSource">
+          <option value="expense">Gastos</option>
+          <option value="income">Ingresos</option>
+        </select>
+        <button id="distPattern" class="btn"><i class="fas fa-chart-line"></i> Distribuir patrón histórico</button>
+      </div>`;
+    el.innerHTML = `<div class="forecast-plan">${summaryHtml}<div class="forecast-inputs">${inputs}</div></div>`;
+    function updateForecastSummary() {
+      const values = Array.from(el.querySelectorAll('input[data-month]')).map(inp => Number(inp.value) || 0);
+      const total = values.reduce((s,v)=> s+v, 0);
+      const avg = total / (values.length || 12);
+      const fmt = (n) => new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(Math.round(n * 100) / 100);
+      const totEl = document.getElementById('forecastTotal');
+      const avgEl = document.getElementById('forecastAvg');
+      if (totEl) totEl.textContent = fmt(total);
+      if (avgEl) avgEl.textContent = fmt(avg);
+      updateQuarterSummary(values, fmt);
+    }
+    function updateQuarterSummary(values, fmt) {
+      const q = [
+        values.slice(0,3).reduce((s,v)=>s+v,0),
+        values.slice(3,6).reduce((s,v)=>s+v,0),
+        values.slice(6,9).reduce((s,v)=>s+v,0),
+        values.slice(9,12).reduce((s,v)=>s+v,0),
+      ];
+      const qs = document.getElementById('quarterSummary');
+      if (qs) {
+        const spans = qs.querySelectorAll('span');
+        ['Q1','Q2','Q3','Q4'].forEach((label, i) => {
+          const s = spans[i]; if (s) s.innerHTML = `<strong>${label}:</strong> ${fmt(q[i])}`;
+        });
+      }
+    }
+    function adjustAll(percent) {
+      el.querySelectorAll('input[data-month]').forEach(inp => {
+        const cur = Number(inp.value) || 0;
+        const nxt = Math.max(0, cur * (1 + percent));
+        inp.value = String(Math.round(nxt * 100) / 100);
+      });
+      updateForecastSummary();
+    }
+    el.querySelectorAll('input[data-month]').forEach(inp => {
+      inp.addEventListener('input', updateForecastSummary);
+      inp.addEventListener('change', updateForecastSummary);
+    });
+    document.getElementById('dec5')?.addEventListener('click', () => adjustAll(-0.05));
+    document.getElementById('inc5')?.addEventListener('click', () => adjustAll(0.05));
+    document.getElementById('resetZero')?.addEventListener('click', () => {
+      el.querySelectorAll('input[data-month]').forEach(inp => { inp.value = '0'; });
+      updateForecastSummary();
+    });
+    document.getElementById('copyCurrentYear')?.addEventListener('click', async () => {
+      try {
+        const all = await getAllTransactions();
+        const memberSel = getSelectedForecastMember();
+        const year = new Date().getFullYear();
+        const monthlyTotals = Array.from({length:12},()=>0);
+        all.forEach(t => {
+          const d = new Date(t.date);
+          const sameYear = d.getFullYear() === year;
+          const isExp = (t.type || t.kind) === 'expense' && !isLoanCapitalTransaction(t);
+          const matchMember = !memberSel || !t.member || t.member === memberSel;
+          if (sameYear && isExp && matchMember) {
+            monthlyTotals[d.getMonth()] += Number(t.amount) || 0;
+          }
+        });
+        el.querySelectorAll('input[data-month]').forEach(inp => {
+          const m = Number(inp.getAttribute('data-month')) || 0;
+          const val = Math.round((monthlyTotals[m] || 0) * 100) / 100;
+          inp.value = String(val);
+        });
+        updateForecastSummary();
+        if (typeof showNotification === 'function') showNotification('Copiado desde el año actual', 'success');
+      } catch (e) {
+        console.error('Error copiando año actual:', e);
+        if (typeof showNotification === 'function') showNotification('Error al copiar datos del año actual', 'error');
+      }
+    });
+    updateForecastSummary();
+
+    // Copiar desde presupuesto (sumatorio mensual de límites por categoría)
+    const copyBudgetBtn = document.getElementById('copyBudget');
+    if (copyBudgetBtn) copyBudgetBtn.addEventListener('click', async () => {
+      try {
+        let saved = null;
+        try { saved = await DB.get('settings','expense_budget'); } catch(_) { saved = null; }
+        const budget = (saved && saved.value) ? saved.value : {};
+        const totalMonthly = Object.values(budget).reduce((s,v)=> s + (Number(v)||0), 0);
+        el.querySelectorAll('input[data-month]').forEach(inp => { inp.value = String(Math.round(totalMonthly * 100) / 100); });
+        updateForecastSummary();
+        if (typeof showNotification === 'function') showNotification('Copiado desde presupuesto', 'success');
+      } catch(e) {
+        console.error('Error copiando desde presupuesto:', e);
+        if (typeof showNotification === 'function') showNotification('Error al copiar presupuesto', 'error');
+      }
+    });
+
+    // Utilidad: patrón histórico mensual configurable (año, último 12, ingresos/gastos)
+    async function computeHistoricalMonthlyPattern(options = {}) {
+      const { window = 'current', source = 'expense', refYear = new Date().getFullYear() } = options;
+      const all = await getAllTransactions();
+      const memberSel = getSelectedForecastMember();
+      const monthlyTotals = Array.from({length:12},()=>0);
+      if (window === 'last12') {
+        const now = new Date();
+        for (let i = 11; i >= 0; i--) {
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const start = new Date(d.getFullYear(), d.getMonth(), 1);
+          const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+          const within = all.filter(t => {
+            const td = new Date(t.date);
+            const matchDate = td >= start && td <= end;
+            const matchMember = !memberSel || !t.member || t.member === memberSel;
+            return matchDate && matchMember;
+          });
+          const sum = within.filter(t => {
+            const kind = (t.type || t.kind);
+            if (source === 'income') return kind === 'income';
+            return kind === 'expense' && !isLoanCapitalTransaction(t);
+          }).reduce((s,t)=> s + (Number(t.amount)||0), 0);
+          monthlyTotals[11 - i] = sum;
+        }
+      } else {
+        const year = window === 'prev' ? (refYear - 1) : refYear;
+        for (let m = 0; m < 12; m++) {
+          const start = new Date(year, m, 1);
+          const end = new Date(year, m + 1, 0);
+          const within = all.filter(t => {
+            const td = new Date(t.date);
+            const matchDate = td >= start && td <= end;
+            const matchMember = !memberSel || !t.member || t.member === memberSel;
+            return matchDate && matchMember;
+          });
+          const sum = within.filter(t => {
+            const kind = (t.type || t.kind);
+            if (source === 'income') return kind === 'income';
+            return kind === 'expense' && !isLoanCapitalTransaction(t);
+          }).reduce((s,t)=> s + (Number(t.amount)||0), 0);
+          monthlyTotals[m] = sum;
+        }
+      }
+      const grand = monthlyTotals.reduce((s,v)=> s+v, 0);
+      const safeGrand = grand > 0 ? grand : 1;
+      const shares = monthlyTotals.map(v => v / safeGrand);
+      return { totals: monthlyTotals, shares };
+    }
+
+    // Distribuir total anual uniformemente
+    const distUniformBtn = document.getElementById('distUniform');
+    if (distUniformBtn) distUniformBtn.addEventListener('click', () => {
+      const totalAnnual = Number(document.getElementById('annualTotalToDistribute')?.value || 0);
+      if (!isFinite(totalAnnual) || totalAnnual <= 0) {
+        if (typeof showNotification === 'function') showNotification('Indica un total anual válido', 'warning');
+        return;
+      }
+      const perMonth = Math.round((totalAnnual / 12) * 100) / 100;
+      el.querySelectorAll('input[data-month]').forEach(inp => { inp.value = String(perMonth); });
+      updateForecastSummary();
+      if (typeof showNotification === 'function') showNotification('Distribución uniforme aplicada', 'success');
+    });
+
+    // Distribuir total anual según patrón histórico configurable
+    const distPatternBtn = document.getElementById('distPattern');
+    if (distPatternBtn) distPatternBtn.addEventListener('click', async () => {
+      const totalAnnual = Number(document.getElementById('annualTotalToDistribute')?.value || 0);
+      if (!isFinite(totalAnnual) || totalAnnual <= 0) {
+        if (typeof showNotification === 'function') showNotification('Indica un total anual válido', 'warning');
+        return;
+      }
+      try {
+        const windowSel = document.getElementById('patternWindow')?.value || 'current';
+        const sourceSel = document.getElementById('patternSource')?.value || 'expense';
+        const { shares } = await computeHistoricalMonthlyPattern({ window: windowSel, source: sourceSel, refYear: new Date().getFullYear() });
+        // Si el patrón está vacío (todo cero), aplicar uniforme
+        const sumShares = shares.reduce((s,v)=> s+v, 0);
+        const appliedShares = (sumShares > 0.0001) ? shares : Array.from({length:12},()=>1/12);
+        const vals = appliedShares.map(sh => Math.round((totalAnnual * sh) * 100) / 100);
+        el.querySelectorAll('input[data-month]').forEach((inp, idx) => { inp.value = String(vals[idx] || 0); });
+        updateForecastSummary();
+        if (typeof showNotification === 'function') showNotification('Distribución por patrón histórico aplicada', 'success');
+      } catch(e) {
+        console.error('Error distribuyendo por patrón histórico:', e);
+        if (typeof showNotification === 'function') showNotification('Error al calcular patrón histórico', 'error');
+      }
+    });
     const btn = document.getElementById('saveForecastPlan');
     if (btn) btn.onclick = async () => {
       const values = {};
       el.querySelectorAll('input[data-month]').forEach((inp) => { values[inp.getAttribute('data-month')] = Number(inp.value) || 0; });
       await DB.saveSetting(`forecast_${nextYear}`, values);
       if (typeof showNotification === 'function') showNotification('Plan de forecast guardado', 'success');
+      updateForecastSummary();
     };
+  }
+
+  // ===== Presupuesto de gastos simple =====
+  async function renderExpenseBudgetSimple() {
+    const wrap = document.getElementById('expenseBudget');
+    if (!wrap) return;
+    const all = await getAllTransactions();
+    const memberSel = getSelectedForecastMember();
+    // Últimos 3 meses por categoría (solo gastos, excluye capital préstamo)
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    const catMap = {};
+    all.forEach(t => {
+      const d = new Date(t.date);
+      const matchMember = !memberSel || !t.member || t.member === memberSel;
+      if (d >= start && matchMember && (t.type || t.kind) === 'expense' && !isLoanCapitalTransaction(t)) {
+        const cat = t.category || 'Otros';
+        catMap[cat] = (catMap[cat] || 0) + (Number(t.amount) || 0);
+      }
+    });
+    const cats = Object.entries(catMap).sort((a,b)=> b[1]-a[1]).slice(0,12);
+    const avgMap = Object.fromEntries(cats.map(([c,total]) => [c, total/3]));
+    // Cargar presupuesto guardado
+    let saved = null;
+    try { saved = await DB.get('settings','expense_budget'); } catch(_) { saved = null; }
+    const budget = (saved && saved.value) ? saved.value : {};
+    const rows = cats.map(([c]) => {
+      const avg = avgMap[c] || 0;
+      const limit = Number(budget[c] || 0);
+      return `<tr><td>${c}</td><td>${formatAmount(avg)}</td><td><input type="number" step="0.01" data-cat="${c}" value="${limit}" /></td></tr>`;
+    }).join('');
+    wrap.innerHTML = `
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Categoría</th><th>Media mensual</th><th>Presupuesto</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="3">Sin datos</td></tr>'}</tbody>
+        </table>
+      </div>
+      <p class="hint">Se calcula la media de los últimos 3 meses.</p>
+    `;
+    const saveBtn = document.getElementById('saveExpenseBudget');
+    if (saveBtn) saveBtn.onclick = async () => {
+      const limits = {};
+      wrap.querySelectorAll('input[data-cat]').forEach(inp => {
+        limits[inp.getAttribute('data-cat')] = Number(inp.value) || 0;
+      });
+      await DB.saveSetting('expense_budget', limits);
+      if (typeof showNotification === 'function') showNotification('Presupuesto guardado', 'success');
+    };
+  }
+
+  // ===== Auto-forecast basado en gastos emergentes =====
+  function setupAutoForecastControls() {
+    const btn = document.getElementById('autoFillForecast');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      const el = document.getElementById('editableForecast');
+      if (!el) return;
+      const auto = !!document.getElementById('autoForecastEmerging')?.checked;
+      const thresholdPct = Number(document.getElementById('emergingThreshold')?.value || 150);
+      const maxUpliftPct = Number(document.getElementById('maxUpliftPercent')?.value || 20);
+      const { avgExpense, upliftFactor } = await computeAutoForecastBaselines(3, thresholdPct, maxUpliftPct);
+      const base = auto ? avgExpense * (1 + upliftFactor) : avgExpense;
+      el.querySelectorAll('input[data-month]').forEach(inp => { inp.value = String(Math.round(base * 100) / 100); });
+      if (typeof showNotification === 'function') showNotification('Forecast rellenado automáticamente', 'success');
+    });
+  }
+
+  async function computeAutoForecastBaselines(months = 3, thresholdPct = 150, maxUpliftPct = 20) {
+    const all = await getAllTransactions();
+    const memberSel = getSelectedForecastMember();
+    // Totales mensuales de gastos (excluye capital préstamo)
+    const now = new Date();
+    const monthlyTotals = [];
+    for (let i = months-1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const start = new Date(d.getFullYear(), d.getMonth(), 1);
+      const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+      const within = all.filter(t => { 
+        const td = new Date(t.date); 
+        const matchDate = td >= start && td <= end; 
+        const matchMember = !memberSel || !t.member || t.member === memberSel; 
+        return matchDate && matchMember; 
+      });
+      const exp = within.filter(t => (t.type || t.kind) === 'expense' && !isLoanCapitalTransaction(t)).reduce((s,t)=> s + (Number(t.amount)||0), 0);
+      monthlyTotals.push(exp);
+    }
+    const avgExpense = (monthlyTotals.reduce((a,b)=>a+b,0) / (monthlyTotals.length || 1)) || 0;
+    // Detección simple de gastos emergentes por categoría: incremento mes a mes
+    const catMonthly = {};
+    for (let i = months-1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const start = new Date(d.getFullYear(), d.getMonth(), 1);
+      const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+      const within = all.filter(t => { 
+        const td = new Date(t.date); 
+        const matchDate = td >= start && td <= end; 
+        const matchMember = !memberSel || !t.member || t.member === memberSel; 
+        return matchDate && matchMember; 
+      });
+      within.forEach(t => {
+        if ((t.type || t.kind) === 'expense' && !isLoanCapitalTransaction(t)) {
+          const c = t.category || 'Otros';
+          catMonthly[c] = catMonthly[c] || [];
+          catMonthly[c][months-1 - i] = (catMonthly[c][months-1 - i] || 0) + (Number(t.amount)||0);
+        }
+      });
+    }
+    let emergingCount = 0;
+    Object.values(catMonthly).forEach(arr => {
+      if (arr.length >= 3) {
+        const [m1,m2,m3] = arr.slice(-3);
+        const thr = Math.max(1, thresholdPct / 100);
+        if (m1 && m2 && m3 && m3 > m2 && m2 > m1 && m3 >= thr * m2) emergingCount++;
+      }
+    });
+    const maxUplift = Math.max(0, Math.min(1, (maxUpliftPct || 20) / 100));
+    const upliftFactor = Math.min(maxUplift, emergingCount * 0.05); // +5% por categoría emergente, máx configurable
+    return { avgExpense, upliftFactor };
+  }
+
+  // ===== Filtro de miembro en Previsión =====
+  function setupForecastMemberFilter() {
+    const sel = document.getElementById('forecast-member');
+    if (!sel) return;
+    const optionsHtml = (typeof FamilyManager !== 'undefined')
+      ? FamilyManager.generateMemberOptions('Todos')
+      : '<option value="">Todos</option>';
+    sel.innerHTML = optionsHtml;
+    const applyBtn = document.getElementById('applyForecastFilters');
+    if (applyBtn) applyBtn.addEventListener('click', () => {
+      renderForecastChartSimple('forecastChart', 6);
+      renderForecastCalendar(new Date().getFullYear(), 'forecastCalendar');
+      renderExpenseBudgetSimple();
+    });
+  }
+
+  function getSelectedForecastMember() {
+    const v = document.getElementById('forecast-member')?.value || '';
+    return v === 'Todos' ? '' : v;
+  }
+
+  // ===== Aplicar presupuesto al forecast =====
+  function setupApplyBudgetToForecast() {
+    const btn = document.getElementById('applyBudgetToForecast');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      let saved = null;
+      try { saved = await DB.get('settings','expense_budget'); } catch(_) { saved = null; }
+      const budget = (saved && saved.value) ? saved.value : {};
+      const totalMonthly = Object.values(budget).reduce((s,v)=> s + (Number(v)||0), 0);
+      const el = document.getElementById('editableForecast');
+      if (!el) return;
+      el.querySelectorAll('input[data-month]').forEach(inp => { inp.value = String(Math.round(totalMonthly * 100) / 100); });
+      if (typeof showNotification === 'function') showNotification('Aplicado presupuesto al forecast', 'success');
+    });
   }
 
   // ===== Importación de extractos bancarios =====
@@ -1409,14 +2092,21 @@
   }
 
   function parseLocaleNumber(s) {
-    const str = String(s).trim();
+    if (typeof s === 'number') return s;
+    const str = String(s || '').trim();
     const neg = /\(.*\)/.test(str) || /^-/.test(str);
-    const cleaned = str
-      .replace(/[()\s]/g, '')
-      .replace(/\./g, '')
-      .replace(/,/g, '.')
-      .replace(/^\+/, '')
-      .replace(/^-/, '');
+    let cleaned = str.replace(/[()\s]/g, '').replace(/^\+/, '').replace(/^-/, '');
+    // Detectar separador decimal por [.,] + 1-2 dígitos al final
+    const m = cleaned.match(/([.,])(\d{1,2})$/);
+    if (m) {
+      const dec = m[1];
+      const thou = dec === '.' ? ',' : '.';
+      cleaned = cleaned.replace(new RegExp('\\' + thou, 'g'), '');
+      cleaned = cleaned.replace(new RegExp('\\' + dec, 'g'), '.');
+    } else {
+      // Si no hay patrón claro de decimales, eliminar ambos como miles
+      cleaned = cleaned.replace(/[.,]/g, '');
+    }
     const n = parseFloat(cleaned);
     return neg ? -Math.abs(n) : n;
   }
@@ -1525,7 +2215,41 @@
     try {
       const loans = await LoansManager.getAll();
       if (!loans.length) {
-        container.innerHTML = `<p class="empty-state">No hay financiaciones registradas.</p>`;
+        // Si no hay préstamos, ofrecer recuperación desde copia local si existe
+        const hasLocalBackup = typeof window.BackupManager !== 'undefined' && !!window.BackupManager.getLocalBackupInfo();
+        const restoreCTA = hasLocalBackup
+          ? `<div class="actions" style="margin-top:8px"><button id="restore-loans-from-backup" class="btn"><i class="fas fa-upload"></i> Recuperar desde copia local</button></div>`
+          : '';
+        container.innerHTML = `<p class="empty-state">No hay financiaciones registradas.</p>${restoreCTA}`;
+        // Configurar botón de recuperación si hay copia local
+        const restoreBtn = document.getElementById('restore-loans-from-backup');
+        if (restoreBtn) {
+          restoreBtn.addEventListener('click', async () => {
+            try {
+              // Recuperar SOLO préstamos desde la copia local
+              const raw = localStorage.getItem('fincontrol_backup_latest');
+              if (!raw) throw new Error('No hay copia local guardada');
+              const payload = JSON.parse(raw);
+              if (!payload || !payload.data || !Array.isArray(payload.data.loans)) {
+                throw new Error('Copia local inválida');
+              }
+              const loansFromBackup = payload.data.loans;
+              for (const loan of loansFromBackup) {
+                try { await DB.add('loans', loan); } catch (_) {}
+              }
+              if (typeof showNotification === 'function') {
+                showNotification('Financiaciones recuperadas desde copia local', 'success');
+              }
+              // Re-renderizar lista tras restaurar
+              renderLoansList();
+            } catch (e) {
+              console.error('Error restaurando copia local:', e);
+              if (typeof showNotification === 'function') {
+                showNotification('No se pudo restaurar la copia local', 'error');
+              }
+            }
+          });
+        }
         return;
       }
       container.innerHTML = loans.map(l => {
@@ -1551,8 +2275,7 @@
           </div>
           <div class="loan-actions">
             <button class="btn" data-action="schedule">Plan de pagos</button>
-            <button class="btn" data-action="pay-next">Pagar siguiente cuota</button>
-            <button class="btn" data-action="payment">Registrar pago</button>
+            <button class="btn" data-action="edit">Editar</button>
             ${doneInst > 0 ? '<button class="btn warning" data-action="undo-payment">Deshacer último pago</button>' : ''}
             <button class="btn danger" data-action="delete">Eliminar</button>
           </div>
@@ -1567,26 +2290,8 @@
           const action = btn.getAttribute('data-action');
           if (action === 'schedule') {
             showLoanScheduleModal(loan);
-          } else if (action === 'pay-next') {
-            try {
-              const done = Array.isArray(loan.payments) ? loan.payments.length : 0;
-              const nextRow = Array.isArray(loan.schedule) ? loan.schedule[done] : undefined;
-              const amount = Number(nextRow?.amount ?? loan.installmentAmount ?? (loan.amount && loan.installments ? (loan.amount / loan.installments) : 0)) || 0;
-              const date = nextRow?.date || new Date().toISOString().slice(0,10);
-              if (amount <= 0) {
-                if (typeof showNotification === 'function') showNotification('No hay importe de cuota definido', 'error');
-                return;
-              }
-              await LoansManager.registerPayment(loan.id, amount, date);
-              loadFinancing();
-            } catch (err) {
-              console.error('No se pudo registrar la siguiente cuota automáticamente:', err);
-              if (typeof showNotification === 'function') {
-                showNotification('Error al registrar cuota automática', 'error');
-              }
-            }
-          } else if (action === 'payment') {
-            showRegisterPaymentModal(loan);
+          } else if (action === 'edit') {
+            showEditLoanModal(loan);
           } else if (action === 'undo-payment') {
             confirmUndoLastPayment(loan);
           } else if (action === 'delete') {
@@ -1771,6 +2476,101 @@
     }
   }
 
+  function showEditLoanModal(loan) {
+    if (!loan) return;
+    const html = `
+      <form id="loan-edit-form" class="loan-form">
+        <div class="row">
+          <input type="text" id="loan-name" placeholder="Nombre" value="${loan.name || ''}" required />
+          <select id="loan-type-fin" required>
+            <option value="Prestamo coche" ${loan.typeOfFinancing==='Prestamo coche'?'selected':''}>Préstamo coche</option>
+            <option value="Prestamo hipotecario" ${loan.typeOfFinancing==='Prestamo hipotecario'?'selected':''}>Préstamo hipotecario</option>
+            <option value="Prestamo personal" ${loan.typeOfFinancing==='Prestamo personal'?'selected':''}>Préstamo personal</option>
+            <option value="Prestamo de familiares" ${loan.typeOfFinancing==='Prestamo de familiares'?'selected':''}>Préstamo de familiares</option>
+            <option value="Tarjeta Visa" ${loan.typeOfFinancing==='Tarjeta Visa'?'selected':''}>Tarjeta Visa</option>
+            <option value="Tarjeta revolving" ${loan.typeOfFinancing==='Tarjeta revolving'?'selected':''}>Tarjeta revolving</option>
+            <option value="Financiacion comercial" ${loan.typeOfFinancing==='Financiacion comercial'?'selected':''}>Financiación comercial</option>
+          </select>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="loan-start">Fecha de concesión</label>
+            <input type="date" id="loan-start" value="${loan.startDate ? String(loan.startDate).slice(0,10) : ''}" required />
+          </div>
+          <div class="field">
+            <label for="loan-first-installment">Fecha 1ª cuota</label>
+            <input type="date" id="loan-first-installment" value="${loan.firstInstallmentDate ? String(loan.firstInstallmentDate).slice(0,10) : ''}" />
+          </div>
+        </div>
+        <div class="row">
+          <input type="number" step="0.01" id="loan-amount" placeholder="Importe" value="${Number(loan.amount)||0}" required />
+          <input type="number" step="0.01" id="loan-interest" placeholder="Interés (%)" value="${Number(loan.interestRate)||0}" />
+          <input type="number" id="loan-installments" placeholder="Cuotas" value="${Number(loan.installments)||0}" />
+        </div>
+        <div class="row">
+          <input type="number" step="0.01" id="loan-installment-amount" placeholder="Cuota mensual" value="${Number(loan.installmentAmount)||''}" />
+          <input type="number" step="0.01" id="loan-first-amount" placeholder="1ª cuota" value="${Number(loan.firstInstallmentAmount)||''}" />
+          <input type="number" step="0.01" id="loan-last-amount" placeholder="Última cuota" value="${Number(loan.lastInstallmentAmount)||''}" />
+        </div>
+        <div class="row">
+          <input type="text" id="loan-institution" placeholder="Entidad" value="${loan.institution || ''}" />
+          <input type="text" id="loan-concept" placeholder="Concepto" value="${loan.concept || ''}" />
+        </div>
+      </form>
+    `;
+    if (typeof showModal === 'function') {
+      showModal({
+        title: 'Editar financiación',
+        content: html,
+        size: 'medium',
+        buttons: [
+          { text: 'Cancelar', type: 'secondary', onClick: () => closeModal() },
+          { text: 'Guardar', type: 'primary', onClick: async () => {
+              try {
+                loan.name = document.getElementById('loan-name').value.trim();
+                loan.typeOfFinancing = document.getElementById('loan-type-fin').value;
+                loan.amount = Number(document.getElementById('loan-amount').value) || 0;
+                loan.startDate = document.getElementById('loan-start').value || loan.startDate;
+                loan.firstInstallmentDate = document.getElementById('loan-first-installment').value || loan.firstInstallmentDate;
+                loan.installments = Number(document.getElementById('loan-installments').value) || loan.installments;
+                loan.interestRate = Number(document.getElementById('loan-interest').value) || loan.interestRate;
+                loan.installmentAmount = Number(document.getElementById('loan-installment-amount').value) || loan.installmentAmount;
+                loan.firstInstallmentAmount = Number(document.getElementById('loan-first-amount').value) || loan.firstInstallmentAmount;
+                loan.lastInstallmentAmount = Number(document.getElementById('loan-last-amount').value) || loan.lastInstallmentAmount;
+                loan.institution = document.getElementById('loan-institution').value.trim() || undefined;
+                loan.concept = document.getElementById('loan-concept').value.trim() || undefined;
+                await LoansManager.update(loan);
+                closeModal();
+                loadFinancing();
+              } catch (err) {
+                console.error('No se pudo actualizar la financiación:', err);
+                if (typeof showNotification === 'function') {
+                  showNotification('Error al actualizar financiación', 'error');
+                }
+              }
+            }
+          }
+        ]
+      });
+      // Auto-cálculo de cuota mensual
+      const amt = document.getElementById('loan-amount');
+      const rate = document.getElementById('loan-interest');
+      const inst = document.getElementById('loan-installments');
+      const cuota = document.getElementById('loan-installment-amount');
+      const recalc = () => {
+        const A = Number(amt.value) || 0;
+        const N = Number(inst.value) || 0;
+        const Rm = (Number(rate.value) || 0) / 100 / 12;
+        let c = 0;
+        if (A > 0 && N > 0) {
+          c = Rm > 0 ? (A * Rm) / (1 - Math.pow(1 + Rm, -N)) : (A / N);
+        }
+        cuota.value = c ? (Math.round(c * 100) / 100) : '';
+      };
+      ['input','change'].forEach(ev => { amt.addEventListener(ev, recalc); rate.addEventListener(ev, recalc); inst.addEventListener(ev, recalc); });
+    }
+  }
+
   function showLoanScheduleModal(loan) {
     if (!loan) return;
     
@@ -1797,7 +2597,13 @@
       }
     }
     
-    const table = schedule.length ? schedule.map(r => `
+    const doneCount = Array.isArray(loan.payments) ? loan.payments.length : 0;
+    const table = schedule.length ? schedule.map((r, i) => {
+      const isPaid = i < doneCount;
+      const actionCell = isPaid
+        ? '<span class="badge success">Pagado</span>'
+        : `<button class="btn btn-small" data-action="pay-installment" data-idx="${r.idx}" data-amount="${Number(r.amount)||0}" data-date="${r.date}">Pagar</button>`;
+      return `
       <tr>
         <td>#${r.idx}</td>
         <td><input type="date" class="sched-date" value="${r.date}" data-idx="${r.idx}" /></td>
@@ -1805,8 +2611,10 @@
         <td class="sched-interest">${formatAmount(r.interest || 0)}</td>
         <td class="sched-principal">${formatAmount(r.principal || 0)}</td>
         <td class="sched-pending">${formatAmount(r.pendingAmount || 0)}</td>
+        <td>${actionCell}</td>
       </tr>
-    `).join('') : '<tr><td colspan="6">Sin cuotas definidas.</td></tr>';
+      `;
+    }).join('') : '<tr><td colspan="7">Sin cuotas definidas.</td></tr>';
     
     const html = `
       <div class="loan-schedule">
@@ -1822,6 +2630,7 @@
                 <th>Intereses</th>
                 <th>Capital</th>
                 <th>Pendiente</th>
+                <th>Acción</th>
               </tr>
             </thead>
             <tbody>${table}</tbody>
@@ -1861,7 +2670,26 @@
               }
             }
           }
-        ]
+        ],
+        onOpen: () => {
+          const payButtons = Array.from(document.querySelectorAll('button[data-action="pay-installment"]'));
+          payButtons.forEach(btn => {
+            btn.addEventListener('click', async () => {
+              const amount = Number(btn.getAttribute('data-amount')) || 0;
+              const date = btn.getAttribute('data-date') || new Date().toISOString().slice(0,10);
+              if (amount <= 0) { if (typeof showNotification === 'function') showNotification('Importe de cuota inválido', 'error'); return; }
+              try {
+                await LoansManager.registerPayment(loan.id, amount, date);
+                if (typeof showNotification === 'function') showNotification('Cuota pagada', 'success');
+                closeModal();
+                loadFinancing();
+              } catch (err) {
+                console.error('Error al pagar cuota:', err);
+                if (typeof showNotification === 'function') showNotification('Error al pagar cuota', 'error');
+              }
+            });
+          });
+        }
       });
     }
   }

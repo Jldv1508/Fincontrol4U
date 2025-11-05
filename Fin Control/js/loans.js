@@ -22,9 +22,8 @@ const LoansManager = {
         }
         installment = Math.round(installment * 100) / 100;
         const rows = [];
-        let balance = amount; // Saldo pendiente para cálculo de intereses
-        let totalPrincipalPaid = 0; // Capital pagado acumulado
-        
+        let balance = amount; // Saldo pendiente para cálculo (antes de cada pago)
+
         for (let i = 0; i < n; i++) {
             const d = new Date(startDate);
             d.setMonth(d.getMonth() + i);
@@ -32,18 +31,15 @@ const LoansManager = {
             let amt = installment;
             if (i === 0 && firstAmount) amt = firstAmount;
             if (i === n - 1 && lastAmount) amt = lastAmount;
-            
+            // Pendiente ANTES de pagar esta cuota (requerido: 1ª cuota = capital total)
+            const pendingAmount = Math.max(0, Math.round(balance * 100) / 100);
+
+            // Intereses y capital de esta cuota
             const interest = Math.round(balance * rate * 100) / 100;
             const principal = Math.max(0, Math.round((amt - interest) * 100) / 100);
-            
-            // Actualizar saldo para próximo cálculo de intereses
+
+            // Actualizar saldo para próximo cálculo (después de pagar esta cuota)
             balance = Math.max(0, Math.round((balance - principal) * 100) / 100);
-            
-            // Actualizar capital pagado acumulado
-            totalPrincipalPaid += principal;
-            
-            // Calcular pendiente de pago: importe total - capital pagado acumulado
-            const pendingAmount = Math.max(0, Math.round((amount - totalPrincipalPaid) * 100) / 100);
             
             rows.push({ 
                 idx: i + 1, 
@@ -51,11 +47,43 @@ const LoansManager = {
                 amount: amt, 
                 interest, 
                 principal, 
-                balance, // Mantener para compatibilidad
-                pendingAmount // Nuevo campo: pendiente de pago
+                balance, // Saldo DESPUÉS de la cuota (compatibilidad)
+                pendingAmount // Saldo ANTES de la cuota (lo mostrado en tabla "Pendiente")
             });
         }
         return rows;
+    },
+
+    /**
+     * Recalcula el cuadro de financiación usando filas editadas (importes/fechas)
+     * Mantiene el cálculo de intereses, capital y pendiente real por fila.
+     * @param {Object} loan
+     * @param {Array<{idx:number,date:string,amount:number}>} rows
+     * @returns {Array}
+     */
+    computeCustomSchedule(loan, rows) {
+        const amount = Number(loan.amount) || 0;
+        const rate = (Number(loan.interestRate) || 0) / 100 / 12;
+        let balance = amount;
+        const out = [];
+        for (let i = 0; i < rows.length; i++) {
+            const r = rows[i];
+            const amt = Math.max(0, Math.round((Number(r.amount) || 0) * 100) / 100);
+            const pendingAmount = Math.max(0, Math.round(balance * 100) / 100);
+            const interest = Math.round(balance * rate * 100) / 100;
+            const principal = Math.max(0, Math.round((amt - interest) * 100) / 100);
+            balance = Math.max(0, Math.round((balance - principal) * 100) / 100);
+            out.push({
+                idx: i + 1,
+                date: r.date,
+                amount: amt,
+                interest,
+                principal,
+                balance,
+                pendingAmount
+            });
+        }
+        return out;
     },
     /**
      * Obtiene todos los préstamos con filtros opcionales
@@ -178,9 +206,17 @@ const LoansManager = {
             if (!loan.id) {
                 throw new Error('ID de préstamo no proporcionado');
             }
-
-            // Recalcular cuadro si faltan importes
-            if ((!loan.schedule || !loan.schedule.length) && loan.installments) {
+            // Si el usuario ha editado el plan de pagos (filas con amount/date),
+            // recalcular intereses/capital/pendiente basados en dichas filas.
+            if (Array.isArray(loan.schedule) && loan.schedule.length) {
+                const rows = loan.schedule.map(r => ({ idx: r.idx, date: r.date, amount: r.amount }));
+                loan.schedule = this.computeCustomSchedule(loan, rows);
+                loan.installments = loan.schedule.length;
+                loan.installmentAmount = loan.schedule[0] ? loan.schedule[0].amount : loan.installmentAmount;
+                loan.firstInstallmentAmount = loan.schedule[0] ? loan.schedule[0].amount : loan.firstInstallmentAmount;
+                loan.lastInstallmentAmount = loan.schedule[loan.schedule.length - 1] ? loan.schedule[loan.schedule.length - 1].amount : loan.lastInstallmentAmount;
+            } else if (loan.installments) {
+                // Recalcular cuadro si faltan importes
                 loan.schedule = this.computeSchedule(loan);
             }
 

@@ -63,15 +63,16 @@
             <button class="theme-toggle" title="Cambiar tema">
                 <i class="fas theme-toggle-icon fa-moon"></i>
             </button>
+            <button class="install-app-btn" id="installAppButton" title="Instalar aplicación">
+                <i class="fas fa-download"></i>
+            </button>
             <nav id="mainNav">
                 <ul>
-                    <li><a href="#" class="active" data-tab="dashboard"><i class="fas fa-chart-pie"></i> Dashboard</a></li>
-                    <li><a href="#" data-tab="transactions"><i class="fas fa-exchange-alt"></i> Transacciones</a></li>
-                    <li><a href="#" data-tab="subject"><i class="fas fa-user-tag"></i> Sujeto</a></li>
-                    <li><a href="#" data-tab="categories"><i class="fas fa-tags"></i> Categorías</a></li>
                     <li><a href="#" data-tab="scanner"><i class="fas fa-camera"></i> Escanear</a></li>
-                    <li><a href="#" data-tab="forecast"><i class="fas fa-chart-line"></i> Previsión</a></li>
+                    <li><a href="#" class="active" data-tab="transactions"><i class="fas fa-exchange-alt"></i> Transacciones</a></li>
+                    <li><a href="#" data-tab="analysis"><i class="fas fa-chart-bar"></i> Análisis</a></li>
                     <li><a href="#" data-tab="financing"><i class="fas fa-money-bill-wave"></i> Financiación</a></li>
+                    <li><a href="#" data-tab="forecast"><i class="fas fa-chart-line"></i> Previsión</a></li>
                     <li><a href="#" data-tab="settings"><i class="fas fa-cog"></i> Ajustes</a></li>
                 </ul>
             </nav>
@@ -87,24 +88,25 @@
     
     <!-- JavaScript -->
     <script src="js/ui.js?v=3"></script>
-    <script src="js/ui-dashboard.js?v=1"></script>
     <script src="js/theme.js"></script>
     <script src="js/app.js?v=3"></script>
     <script src="js/db.js"></script>
     <script src="js/notifications.js"></script>
     <script src="js/backup.js"></script>
     <script src="js/family-manager.js"></script>
-    <script src="js/categories-analysis.js"></script>
+    <script src="js/monthly-analysis.js"></script>
     <script src="js/transactions.js?v=2"></script>
-    <script src="js/subject.js"></script>
     <script src="js/pdf-parser.js"></script>
     <script src="js/modal-fallback.js"></script>
+    <!-- Parser de extractos bancarios -->
+    <script src="js/bank-extract-mini.js"></script>
     <script src="js/ocr.js"></script>
     <script src="js/product-extractor.js"></script>
     <script src="js/loans.js"></script>
 
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="css/analysis.css" />
 
     <!-- Librerías para extractos se cargarán bajo demanda desde JS -->
     

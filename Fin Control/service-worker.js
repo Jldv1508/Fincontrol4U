@@ -2,7 +2,7 @@
  * Service Worker para la PWA de Control Financiero Doméstico
  */
 
-const CACHE_NAME = 'fincontrol-cache-v1';
+const CACHE_NAME = 'fincontrol-cache-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -20,6 +20,8 @@ const ASSETS_TO_CACHE = [
   '/js/app.js',
   '/js/db.js',
   '/js/notifications.js',
+  '/js/categories-analysis.js',
+  '/js/subject.js',
   '/js/transactions.js',
   '/js/transactions-core.js',
   '/js/pdf-parser.js',

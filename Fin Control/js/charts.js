@@ -224,7 +224,7 @@ const ChartsManager = {
                             label: 'Ingresos',
                             data: incomeData,
                             borderColor: this.colors.income,
-                            backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                            backgroundColor: 'transparent',
                             borderDash: function(context) {
                                 // Línea punteada para datos de previsión
                                 return context.dataIndex >= historicalData.labels.length ? [5, 5] : [];
@@ -234,7 +234,7 @@ const ChartsManager = {
                             label: 'Gastos',
                             data: expenseData,
                             borderColor: this.colors.expense,
-                            backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                            backgroundColor: 'transparent',
                             borderDash: function(context) {
                                 // Línea punteada para datos de previsión
                                 return context.dataIndex >= historicalData.labels.length ? [5, 5] : [];

@@ -37,9 +37,23 @@
     const installBtn = document.getElementById('installBtn');
     const closeBtn = document.getElementById('closeInstallPrompt');
 
+    // Exponer API de instalación para usar desde un botón global
+    window.PWAInstall = {
+      available: false,
+      prompt: async () => {
+        if (!deferredPrompt) return false;
+        const choice = await deferredPrompt.prompt();
+        deferredPrompt = null;
+        window.PWAInstall.available = false;
+        if (promptEl) promptEl.style.display = 'none';
+        return choice;
+      }
+    };
+
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       deferredPrompt = e;
+      window.PWAInstall.available = true;
       if (promptEl) promptEl.style.display = 'flex';
     });
 
@@ -56,6 +70,29 @@
         if (promptEl) promptEl.style.display = 'none';
       });
     }
+
+    const globalBtn = document.getElementById('installAppButton');
+    if (globalBtn) {
+      const tryInstall = async () => {
+        if (!window.PWAInstall || !window.PWAInstall.available) {
+          // Fallback: algunos navegadores ofrecen instalación desde el menú
+          if (typeof window.showNotification === 'function') {
+            showNotification('Usa el menú del navegador: Instalar aplicación', 'info');
+          }
+          return;
+        }
+        try { await window.PWAInstall.prompt(); } catch (_) {}
+      };
+      globalBtn.addEventListener('click', tryInstall);
+    }
+
+    window.addEventListener('appinstalled', () => {
+      window.PWAInstall.available = false;
+      if (promptEl) promptEl.style.display = 'none';
+      if (typeof window.showNotification === 'function') {
+        showNotification('Aplicación instalada correctamente', 'success');
+      }
+    });
   }
 
   async function initDB() {
@@ -88,10 +125,16 @@
     if (typeof window.setupThemeEvents === 'function') {
       try { setupThemeEvents(); } catch (_) {}
     }
+    // Inicializar gestor de extractos bancarios si está disponible
+    try {
+      if (window.BankExtractManager && typeof window.BankExtractManager.init === 'function') {
+        window.BankExtractManager.init();
+      }
+    } catch (e) { console.warn('No se pudo inicializar BankExtractManager:', e); }
     setupInstallPrompt();
     registerServiceWorker();
     await initDB();
-    if (typeof window.loadContent === 'function') window.loadContent('dashboard');
+    if (typeof window.loadContent === 'function') window.loadContent('transactions');
     if (window.SyncManager && typeof SyncManager.init === 'function') {
       try { SyncManager.init(); } catch (_) {}
     }

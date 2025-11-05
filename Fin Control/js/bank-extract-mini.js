@@ -14,6 +14,31 @@ const BankExtractManager = {
     },
     
     /**
+     * Parseo robusto de importes con soporte de coma decimal (es-ES)
+     */
+    parseAmountString: function(s) {
+        if (typeof s === 'number') return s;
+        s = String(s || '').trim();
+        const isNegative = /^-/.test(s) || /\(.*\)/.test(s);
+        // limpiar todo excepto dígitos y separadores
+        s = s.replace(/[^0-9.,]/g, '');
+        // detectar separador decimal por 1-2 dígitos al final
+        const m = s.match(/([.,])(\d{1,2})$/);
+        if (m) {
+            const dec = m[1];
+            const thou = dec === '.' ? ',' : '.';
+            s = s.replace(new RegExp('\\' + thou, 'g'), '');
+            s = s.replace(new RegExp('\\' + dec, 'g'), '.');
+        } else {
+            // sin separador claro: eliminar ambos como miles
+            s = s.replace(/[.,]/g, '');
+        }
+        const n = parseFloat(s);
+        if (!isFinite(n)) return 0;
+        return isNegative ? -Math.abs(n) : n;
+    },
+    
+    /**
      * Inicializa el módulo de extractos bancarios
      */
     init: function() {
@@ -247,8 +272,7 @@ const BankExtractManager = {
         while ((match = regex.exec(text)) !== null) {
             const date = match[1];
             const description = match[2].trim();
-            const amountStr = match[3].replace(/[.,]/g, '').replace(/,(\d{2})$/, '.$1');
-            const amount = parseFloat(amountStr);
+            const amount = this.parseAmountString(match[3]);
             
             if (!isNaN(amount)) {
                 transactions.push({
@@ -262,7 +286,43 @@ const BankExtractManager = {
                 });
             }
         }
-        
+        // Fallback por bloques (Fecha, Descripción, Importe, Saldo)
+        if (transactions.length === 0) {
+            const rawLines = String(text || '').split(/\n/).map(l => l.trim());
+            const headers = new Set(['fecha','fecha valor','movimiento','más datos','mas datos','importe','saldo']);
+            const lines = rawLines.filter(l => l && !headers.has(l.toLowerCase()));
+            const dateRe = /(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{4}[\/-]\d{1,2}[\/-]\d{1,2})/;
+            const amountLineRe = /^\(?\s*[\+\-]?\d{1,3}(?:[\.,]\d{3})*(?:[\.,]\d{2})\s*\)?$/;
+            for (let i = 0; i < lines.length; i++) {
+                const dm = lines[i].match(dateRe);
+                if (!dm) continue;
+                const txDate = dm[1];
+                let j = i + 1;
+                if (j < lines.length && dateRe.test(lines[j])) j++;
+                const descParts = [];
+                while (j < lines.length) {
+                    const cur = lines[j];
+                    if (amountLineRe.test(cur)) break;
+                    if (dateRe.test(cur)) break;
+                    descParts.push(cur);
+                    j++;
+                }
+                if (j < lines.length && amountLineRe.test(lines[j])) {
+                    const amountVal = this.parseAmountString(lines[j]);
+                    const description = descParts.join(' ').replace(/\s+/g, ' ').trim() || 'Movimiento';
+                    transactions.push({
+                        id: this.generateUUID(),
+                        date: txDate,
+                        description,
+                        amount: amountVal,
+                        bankName: bankName,
+                        extractDate: extractDate,
+                        createdAt: new Date().toISOString()
+                    });
+                    i = j;
+                }
+            }
+        }
         return transactions;
     },
     

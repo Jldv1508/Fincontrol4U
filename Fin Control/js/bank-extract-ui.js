@@ -50,44 +50,7 @@ const BankExtractUI = {
             content: modalContent,
             size: 'large',
             onOpen: () => {
-                // Configurar eventos
-                document.getElementById('process-extract-btn').addEventListener('click', () => {
-                    const bank = document.getElementById('bank-select').value;
-                    const date = document.getElementById('extract-date').value;
-                    const text = document.getElementById('extract-text').value;
-                    
-                    if (!text) {
-                        if (window.NotificationManager) {
-                            NotificationManager.show({
-                                type: 'error',
-                                message: 'Por favor, introduce el texto del extracto'
-                            });
-                        }
-                        return;
-                    }
-                    
-                    // Procesar extracto
-                    BankExtractManager.processExtract({
-                        bank: bank,
-                        date: date,
-                        text: text
-                    })
-                    .then(transactions => {
-                        // Cerrar modal
-                        window.closeModal();
-                        
-                        // Mostrar resultados
-                        this.showExtractResults(transactions);
-                    })
-                    .catch(error => {
-                        if (window.NotificationManager) {
-                            NotificationManager.show({
-                                type: 'error',
-                                message: `Error al procesar el extracto: ${error.message}`
-                            });
-                        }
-                    });
-                });
+                // Se elimina el procesamiento por texto pegado. Usa la carga de archivo en Escanear.
                 
                 document.getElementById('cancel-extract-btn').addEventListener('click', () => {
                     window.closeModal();

@@ -22,15 +22,19 @@
   function parseLocaleNumber(str) {
     if (typeof str === 'number') return str;
     if (typeof str !== 'string') return 0;
-    const s = str.trim();
+    let s = str.trim();
     const neg = /^-/.test(s) || /\(.*\)/.test(s);
-    const cleaned = s
-      .replace(/[\s\(\)]/g, '')
-      .replace(/\./g, '')
-      .replace(/,/g, '.')
-      .replace(/^\+/, '')
-      .replace(/^-/, '');
-    const n = parseFloat(cleaned);
+    s = s.replace(/[\s\(\)]/g, '').replace(/^\+/, '').replace(/^-/, '');
+    const m = s.match(/([.,])(\d{1,2})$/);
+    if (m) {
+      const dec = m[1];
+      const thou = dec === '.' ? ',' : '.';
+      s = s.replace(new RegExp('\\' + thou, 'g'), '');
+      s = s.replace(new RegExp('\\' + dec, 'g'), '.');
+    } else {
+      s = s.replace(/[.,]/g, '');
+    }
+    const n = parseFloat(s);
     return neg ? -Math.abs(n) : n;
   }
 
@@ -44,12 +48,14 @@
     });
     const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
     const rows = [];
+    const textParts = [];
     const dateRe = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/;
     const amountRe = /[\-\+]?\d{1,3}(?:[\.,]\d{3})*(?:[\.,]\d{2})/;
     for (let p = 1; p <= pdf.numPages; p++) {
       const page = await pdf.getPage(p);
       const content = await page.getTextContent();
       const tokens = content.items.map(it => (it.str || '').trim()).filter(Boolean);
+      try { textParts.push(content.items.map(it => it.str).join('\n')); } catch(_) {}
       let currentDate = null;
       let buffer = [];
       for (const tok of tokens) {
@@ -88,6 +94,11 @@
           rows.push({ date: currentDate, description: desc, amount: parseLocaleNumber(amtStr) });
         }
       }
+    }
+    if ((!rows || rows.length === 0) && window.BankExtractManager && typeof window.BankExtractManager.extractTransactionsFromText === 'function') {
+      const text = textParts.join('\n');
+      const fallback = window.BankExtractManager.extractTransactionsFromText(text, 'Genérico', new Date().toISOString().slice(0,10)) || [];
+      return fallback.map(r => ({ date: r.date, description: r.description, amount: r.amount }));
     }
     return rows;
   }

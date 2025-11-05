@@ -18,6 +18,7 @@ function initTheme() {
     if (savedTheme) {
         applyTheme(savedTheme);
     } else {
+        // Usar preferencia del sistema para que no quede tan oscuro por defecto
         applyTheme(prefersDark ? THEME_DARK : THEME_LIGHT);
     }
     
