@@ -140,6 +140,14 @@
 
 .chip.category { background: #eaf2ff; }
 .chip.member { background: #eafaf1; }
+.chip.member.jose-luis { background-color: #1976d2; color: #fff; }
+.chip.member.gemma { background-color: #fdd835; color: #333; }
+.chip.member.jose-luis { background-color: #1976d2; color: #fff; }
+.chip.member.gemma { background-color: #fdd835; color: #333; }
+.chip.member.hugo { background-color: #fb8c00; color: #000; }
+.chip.member.alba { background-color: #ec407a; color: #fff; }
+.chip.member.familia { background-color: #43a047; color: #fff; }
+.chip.member.otros { background-color: #e53935; color: #fff; }
 
 .tx-amount {
   font-weight: 700;
@@ -201,4 +209,23 @@
 /* Ordenación selector */
 #flt-sort {
   min-width: 170px;
+}
+
+/* Alineación estado+botón en amortización */
+.action-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Badge de meses con datos en Presupuesto de gastos */
+.months-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 6px;
+  font-size: 0.85em;
+  color: #444;
+  background: #f0f2f5;
+  border: 1px solid #d9dee3;
+  border-radius: 10px;
+  vertical-align: middle;
 }

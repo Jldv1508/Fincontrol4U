@@ -6,8 +6,12 @@
   }
 
   function formatAmount(v) {
+    if (typeof window.formatAmount === 'function') {
+      return window.formatAmount(v);
+    }
     const num = Number(v) || 0;
-    return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(num);
+    const s = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
+    return s.replace(/\u00a0/g,'').replace(/\s*€/,'€');
   }
 
   async function renderSubjectList() {
@@ -36,7 +40,7 @@
         const desc = t.description || '';
         const cat = t.category || '';
         const d = t.date ? new Date(t.date).toLocaleDateString('es-ES') : '';
-        const selectHtml = (typeof FamilyManager !== 'undefined') ? FamilyManager.generateMemberOptions('Todos') : '<option value="Todos">Todos</option>';
+        const selectHtml = (typeof FamilyManager !== 'undefined') ? FamilyManager.generateMemberOptions('Todos') : '<option value="Todos">Sujeto</option>';
         return `
           <div class="tx-item" data-id="${t.id}">
             <div class="tx-main">
@@ -77,6 +81,10 @@
             if (!container.querySelector('.tx-item')) {
               container.innerHTML = '<p class="empty-state">No hay transacciones pendientes de asignar.</p>';
             }
+            // Notificar actualización para refrescar análisis activos
+            try {
+              window.dispatchEvent(new CustomEvent('transactions-changed', { detail: { reason: 'assign-member', ids: [id] } }));
+            } catch (_) {}
           } catch (err) {
             console.error('Error asignando sujeto:', err);
             UIManager.showToast('Error al asignar sujeto', 'error');

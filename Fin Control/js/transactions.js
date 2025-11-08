@@ -2,6 +2,22 @@
 // Depende de `DB` global (definido en db.js) y del contenedor `mainContent`
 
 (function () {
+  // Helper para clases de color por miembro
+  function getMemberClass(name) {
+    if (!name) return '';
+    const slug = (name || '').toString().trim().toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, '-');
+    switch (slug) {
+      case 'jose-luis': return 'jose-luis';
+      case 'gemma': return 'gemma';
+      case 'hugo': return 'hugo';
+      case 'alba': return 'alba';
+      case 'familia': return 'familia';
+      case 'otros': return 'otros';
+      default: return 'otros';
+    }
+  }
   async function getAllTransactions() {
     try {
       const list = await DB.getAll('transactions');
@@ -46,8 +62,12 @@
   }
 
   function formatAmount(v) {
+    if (typeof window.formatAmount === 'function') {
+      return window.formatAmount(v);
+    }
     const num = Number(v) || 0;
-    return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(num);
+    const s = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
+    return s.replace(/\u00a0/g,'').replace(/\s*€/,'€');
   }
 
   // Identificar capital inicial de préstamo (debe excluirse de Previsión de gastos)
@@ -61,9 +81,10 @@
     return hasLoan && !isInstallment && (isCapitalHint || (t.type || t.kind) === 'expense');
   }
 
-  function loadTransactions() {
+  async function loadTransactions() {
     const main = ensureMain();
     if (!main) return;
+    const zeroAmt = (typeof window.formatAmount === 'function') ? window.formatAmount(0) : '0,00€';
     main.innerHTML = `
       <section class="transactions-view">
         <div class="tx-toolbar">
@@ -78,9 +99,9 @@
         </div>
 
         <div class="tx-summary" id="tx-summary">
-          <div class="card income"><h4>Ingresos</h4><div class="amount" id="sum-income">€0.00</div></div>
-          <div class="card expense"><h4>Gastos</h4><div class="amount" id="sum-expense">€0.00</div></div>
-          <div class="card balance"><h4>Balance</h4><div class="amount" id="sum-balance">€0.00</div></div>
+          <div class="card income"><h4>Ingresos</h4><div class="amount" id="sum-income">${zeroAmt}</div></div>
+          <div class="card expense"><h4>Gastos</h4><div class="amount" id="sum-expense">${zeroAmt}</div></div>
+          <div class="card balance"><h4>Balance</h4><div class="amount" id="sum-balance">${zeroAmt}</div></div>
           <div class="card"><h4>Transacciones</h4><div class="amount" id="sum-count">0</div></div>
         </div>
 
@@ -90,6 +111,8 @@
               <option value="">Todos</option>
               <option value="expense">Gasto</option>
               <option value="income">Ingreso</option>
+              <option value="transfer">Transferencia</option>
+              <option value="traspaso">Traspaso</option>
             </select>
             <select id="flt-member" class="form-control">
               <option value="">Todos los miembros</option>
@@ -122,14 +145,20 @@
             <select id="tx-type" required>
               <option value="expense">Gasto</option>
               <option value="income">Ingreso</option>
+              <option value="transfer">Transferencia</option>
+              <option value="traspaso">Traspaso</option>
             </select>
-            <input type="text" id="tx-category" placeholder="Categoría" required />
+            <select id="tx-category" class="form-control" required></select>
+            <input type="text" id="tx-category-other" placeholder="Otra categoría" style="display:none;" />
+            <input type="text" id="tx-subcategory" list="subcategories-list" placeholder="Subcategoría (ej. Fruta)" />
+            <datalist id="subcategories-list"></datalist>
             <select id="tx-member" class="form-control">
               <option value="Todos">Todos</option>
             </select>
             <input type="text" id="tx-desc" placeholder="Descripción" />
             <button type="submit" class="btn btn-primary"><i class="fas fa-plus"></i> Añadir transacción</button>
           </div>
+          
         </form>
 
         <div id="tx-list" class="tx-list">
@@ -138,21 +167,57 @@
       </section>
     `;
 
-    // Inicializar selector de miembros
+    // Inicializar selector de miembros (alta)
     const memberSelect = document.getElementById('tx-member');
-    if (memberSelect && typeof FamilyManager !== 'undefined') {
-      memberSelect.innerHTML = FamilyManager.generateMemberOptions('Todos');
+    if (typeof FamilyManager !== 'undefined') {
+      if (memberSelect) memberSelect.innerHTML = FamilyManager.generateMemberOptions('Todos');
     }
 
     // Inicializar filtros de miembro
     const memberFilter = document.getElementById('flt-member');
     if (memberFilter && typeof FamilyManager !== 'undefined') {
       const members = FamilyManager.getMembers();
-      memberFilter.innerHTML = '<option value="">Todos los miembros</option>' + members.filter(m => m !== 'Todos').map(m => `<option value="${m}">${m}</option>`).join('');
+      // Añadir opción explícita para filtrar por miembro "Todos" y mantener opción sin filtro
+      memberFilter.innerHTML = '<option value="">Todos los miembros</option><option value="Todos">Todos</option>' + members.filter(m => m !== 'Todos').map(m => `<option value="${m}">${m}</option>`).join('');
+    }
+    // Alinear el sujeto por defecto del alta con el filtro activo (si existe)
+    if (memberFilter) {
+      const activeMember = memberFilter.value || 'Todos';
+      if (memberSelect) {
+        // Si el miembro activo existe como opción, seleccionarlo en el alta
+        const opt = Array.from(memberSelect.options).find(o => o.value === activeMember);
+        if (opt) memberSelect.value = activeMember; else memberSelect.value = 'Todos';
+      }
+      
     }
 
-    // Inicializar autocompletado de categorías
+    // Inicializar autocompletado de categorías (filtros avanzados)
     initCategoryFilter();
+    // Rellenar desplegable de categorías para alta rápida
+    try {
+      await populateCategorySelect(document.getElementById('tx-category'));
+      const addCatSel = document.getElementById('tx-category');
+      const addCatOther = document.getElementById('tx-category-other');
+      const addSubcatInput = document.getElementById('tx-subcategory');
+      const addSubcatList = document.getElementById('subcategories-list');
+      if (addCatSel && addCatOther) {
+        addCatSel.addEventListener('change', () => {
+          if (addCatSel.value === '__other__') {
+            addCatOther.style.display = '';
+            addCatOther.focus();
+            if (addSubcatList) addSubcatList.innerHTML = '';
+          } else {
+            addCatOther.style.display = 'none';
+            addCatOther.value = '';
+            // Actualizar sugerencias de subcategoría según la categoría
+            if (addSubcatList) { populateSubcategoriesDatalist(addCatSel.value); }
+          }
+        });
+      }
+      // Inicializar sugerencias de subcategorías si hay categoría preseleccionada
+      if (addCatSel && addSubcatList) { populateSubcategoriesDatalist(addCatSel.value); }
+      
+    } catch (_) {}
 
     // Inicializar chips de categorías
     initCategoryChips();
@@ -164,14 +229,21 @@
         e.preventDefault();
         const amount = Number(document.getElementById('tx-amount').value);
         const type = document.getElementById('tx-type').value;
-        const category = document.getElementById('tx-category').value.trim() || 'other';
+        let category = document.getElementById('tx-category').value || '';
+        if (category === '__other__') {
+          category = (document.getElementById('tx-category-other').value || '').trim();
+        }
+        category = category.trim() || 'Otros';
+        const subcategory = (document.getElementById('tx-subcategory')?.value || '').trim();
         const member = document.getElementById('tx-member').value;
         const description = document.getElementById('tx-desc').value.trim();
+        
         const tx = {
           id: 'trans_' + Date.now(),
           amount,
           type,
           category,
+          subcategory: subcategory || undefined,
           member,
           description,
           date: new Date().toISOString().slice(0,10)
@@ -181,17 +253,42 @@
           if (typeof showNotification === 'function') {
             showNotification('Transacción añadida', 'success');
           }
+          if (typeof UIManager !== 'undefined' && UIManager.showToast) {
+            try { UIManager.showToast('Transacción añadida', 'success'); } catch (_) {}
+          }
+          // Aviso si los filtros activos pueden ocultar la transacción añadida
+          try {
+            const visible = getFilteredTransactions([tx]).length;
+            const filtersActive = (
+              (document.getElementById('flt-start')?.value || '') ||
+              (document.getElementById('flt-end')?.value || '') ||
+              (document.getElementById('flt-type')?.value || '') ||
+              (document.getElementById('flt-member')?.value || '') ||
+              (document.getElementById('flt-query')?.value || '') ||
+              (getSelectedCategories() || []).length
+            );
+            if (!visible && filtersActive && typeof UIManager !== 'undefined') {
+              UIManager.showToast('Hay filtros activos; puede que no veas la transacción añadida.', 'warning');
+            }
+          } catch (_) {}
           // Recargar listado y resumen
           renderTransactionsList();
           renderTransactionsSummary();
           initCategoryFilter();
           initCategoryChips();
+          // Notificar alta para refrescar vistas de análisis si están activas
+          try {
+            window.dispatchEvent(new CustomEvent('transactions-changed', { detail: { reason: 'add', ids: [tx.id] } }));
+          } catch (_) {}
         } catch (err) {
           console.error('No se pudo añadir la transacción', err);
           if (typeof showNotification === 'function') {
             showNotification('Error al añadir transacción', 'error');
           }
-        }
+          if (typeof UIManager !== 'undefined' && UIManager.showToast) {
+            try { UIManager.showToast('Error al añadir transacción', 'error'); } catch (_) {}
+          }
+          }
         form.reset();
       });
     }
@@ -217,6 +314,9 @@
           renderTransactionsList();
           renderTransactionsSummary();
           initCategoryFilter();
+          try {
+            window.dispatchEvent(new CustomEvent('transactions-changed', { detail: { reason: 'delete-all' } }));
+          } catch (_) {}
         } catch (e) {
           console.error('Error al borrar todas las transacciones:', e);
           UIManager.showToast('Error al borrar transacciones', 'error');
@@ -328,7 +428,8 @@
   async function openBulkEditModal() {
     const ids = Array.from(selectedIds);
     if (!ids.length) { UIManager?.showToast && UIManager.showToast('No hay elementos seleccionados', 'info'); return; }
-    const memberOptions = (typeof FamilyManager !== 'undefined') ? FamilyManager.generateMemberOptions('') : '<option value="">(sin cambio)</option><option value="Todos">Todos</option>';
+    const memberOptions = (typeof FamilyManager !== 'undefined') ? FamilyManager.generateMemberOptions('') : '<option value="">(sin cambio)</option><option value="Todos">Sujeto</option>';
+    const subOptions = await buildBulkSubcategoryOptions('');
     const content = `
       <form id="bulk-edit-form" class="form-grid">
         <label>Tipo</label>
@@ -336,9 +437,15 @@
           <option value="">(sin cambio)</option>
           <option value="expense">Gasto</option>
           <option value="income">Ingreso</option>
+          <option value="transferencia">Transferencia</option>
+          <option value="traspaso">Traspaso</option>
         </select>
         <label>Categoría</label>
-        <input type="text" id="bulk-category" class="form-control" placeholder="(sin cambio)" />
+        <select id="bulk-category" class="form-control"></select>
+        <input type="text" id="bulk-category-other" class="form-control" placeholder="Otra categoría" style="display:none;" />
+        <label>Subcategoría</label>
+        <select id="bulk-subcategory" class="form-control">${subOptions}</select>
+        <input type="text" id="bulk-subcategory-other" class="form-control" placeholder="Otra subcategoría" style="display:none;" />
         <label>Miembro</label>
         <select id="bulk-member" class="form-control">${memberOptions}</select>
       </form>
@@ -353,16 +460,68 @@
           { text: 'Cancelar', type: 'secondary', onClick: () => closeModal() },
           { text: 'Guardar', type: 'primary', onClick: async () => {
               const type = document.getElementById('bulk-type').value;
-              const category = document.getElementById('bulk-category').value.trim();
+              const catSel = document.getElementById('bulk-category').value;
+              const category = catSel === '__other__' ? (document.getElementById('bulk-category-other').value || '').trim() : (catSel || '').trim();
+              const subSel = document.getElementById('bulk-subcategory').value;
+              const subOther = (document.getElementById('bulk-subcategory-other').value || '').trim();
+              const subcategory = (subSel === '__other_sub__' ? subOther : (subSel || '')).trim();
               const member = document.getElementById('bulk-member').value;
-              await applyBulkEdit({ type: type || null, category: category || null, member: member || null });
+              await applyBulkEdit({ type: type || null, category: category || null, subcategory: subcategory || null, member: member || null });
               closeModal();
             } }
         ]
       });
+      // Poblar categorías y manejar "Otra…" + subcategorías vinculadas
+      const catSelEl = document.getElementById('bulk-category');
+      const catOtherEl = document.getElementById('bulk-category-other');
+      if (catSelEl) {
+        try {
+          await populateCategorySelect(catSelEl);
+          // Usar vacío como "(sin cambio)"
+          catSelEl.value = '';
+          if (catOtherEl) { catOtherEl.style.display = 'none'; catOtherEl.value = ''; }
+        } catch (_) {}
+        const refreshBulkSubs = async () => {
+          const val = catSelEl.value === '__other__' ? (catOtherEl?.value || '').trim() : (catSelEl.value || '').trim();
+          const opts = await buildBulkSubcategoryOptions(val);
+          const subSelEl = document.getElementById('bulk-subcategory');
+          if (subSelEl) {
+            subSelEl.innerHTML = opts;
+            const subOtherEl = document.getElementById('bulk-subcategory-other');
+            if (subOtherEl) { subOtherEl.style.display = 'none'; subOtherEl.value = ''; }
+            subSelEl.value = '';
+          }
+        };
+        // Inicial
+        await refreshBulkSubs();
+        // Cambios
+        catSelEl.addEventListener('change', async () => {
+          if (catSelEl.value === '__other__') {
+            if (catOtherEl) { catOtherEl.style.display = ''; catOtherEl.focus(); }
+          } else {
+            if (catOtherEl) { catOtherEl.style.display = 'none'; catOtherEl.value = ''; }
+          }
+          await refreshBulkSubs();
+        });
+        if (catOtherEl) catOtherEl.addEventListener('input', refreshBulkSubs);
+        // Mostrar input "Otra subcategoría" al seleccionar la opción
+        const bulkSubSel = document.getElementById('bulk-subcategory');
+        const bulkSubOther = document.getElementById('bulk-subcategory-other');
+        if (bulkSubSel && bulkSubOther) {
+          bulkSubSel.addEventListener('change', () => {
+            if (bulkSubSel.value === '__other_sub__') {
+              bulkSubOther.style.display = '';
+              bulkSubOther.focus();
+            } else {
+              bulkSubOther.style.display = 'none';
+              bulkSubOther.value = '';
+            }
+          });
+        }
+      }
     } else {
       const ok = confirm(`Aplicar cambios a ${ids.length} transacciones?`);
-      if (ok) await applyBulkEdit({ type: null, category: null, member: null });
+      if (ok) await applyBulkEdit({ type: null, category: null, subcategory: null, member: null });
     }
   }
 
@@ -376,6 +535,7 @@
         const next = { ...tx };
         if (changes.type) next.type = changes.type;
         if (changes.category) next.category = changes.category;
+        if (changes.subcategory) next.subcategory = changes.subcategory;
         if (changes.member !== null && changes.member !== undefined && changes.member !== '') next.member = changes.member;
         next.updated_at = new Date().toISOString();
         await DB.add('transactions', next);
@@ -386,6 +546,31 @@
     clearSelection();
     renderTransactionsList();
     renderTransactionsSummary();
+    // Notificar a vistas de análisis que hubo cambios en transacciones
+    try {
+      window.dispatchEvent(new CustomEvent('transactions-changed', { detail: { reason: 'bulk-edit', ids } }));
+    } catch (_) {}
+  }
+
+  async function buildBulkSubcategoryOptions(categoryInput) {
+    // Construye opciones de subcategoría combinando las presentes en seleccionados y las por defecto
+    const ids = Array.from(selectedIds);
+    const all = await getAllTransactions();
+    const selectedTxs = all.filter(t => ids.includes(t.id));
+    const catNorm = (categoryInput||'').toString().trim().toLowerCase();
+    const defaults = (typeof DEFAULT_SUBCATEGORIES !== 'undefined' && DEFAULT_SUBCATEGORIES[catNorm]) ? DEFAULT_SUBCATEGORIES[catNorm] : [];
+    const fromData = new Set();
+    selectedTxs.forEach(t => {
+      const cat = (t.category||'').toString().trim().toLowerCase();
+      if (!categoryInput || !catNorm || cat === catNorm) {
+        fromData.add(t.subcategory || 'Sin subcategoría');
+      }
+    });
+    const union = Array.from(new Set([].concat(Array.from(fromData), defaults))).sort((a,b)=> a.localeCompare(b, 'es', { sensitivity:'base' }));
+    const opts = ['<option value="">(sin cambio)</option>']
+      .concat(union.map(s => `<option value="${s}">${s}</option>`))
+      .concat(['<option value="__other_sub__">Otra…</option>']);
+    return opts.join('');
   }
 
   async function confirmDeleteSelected() {
@@ -400,6 +585,9 @@
       clearSelection();
       renderTransactionsList();
       renderTransactionsSummary();
+      try {
+        window.dispatchEvent(new CustomEvent('transactions-changed', { detail: { reason: 'bulk-delete', ids } }));
+      } catch (_) {}
     };
     if (typeof showModal === 'function') {
       showModal({
@@ -445,7 +633,8 @@
         const cat = t.category || 'Sin categoría';
         const desc = t.description || t.concept || '';
         const amt = formatAmount(t.amount);
-        const sign = (t.type || t.kind) === 'expense' ? '-' : '+';
+        const rawType = (t.type || t.kind);
+        const sign = rawType === 'expense' ? '-' : (rawType === 'income' ? '+' : '');
         const chk = selectionMode ? `<input type="checkbox" class="tx-select" ${selectedIds.has(t.id)?'checked':''} data-id="${t.id}" title="Seleccionar" />` : '';
         return `
           <div class="tx-item" data-id="${t.id}">
@@ -457,7 +646,8 @@
               <div class="tx-body">
                 ${chk}
                 <span class="chip category"><i class="fas fa-tag"></i> ${cat}</span>
-                ${t.member ? `<span class="chip member"><i class="fas fa-user"></i> ${t.member}</span>` : ''}
+                ${t.subcategory ? `<span class="chip subcategory"><i class="fas fa-tags"></i> ${t.subcategory}</span>` : ''}
+                ${t.member ? `<span class="chip member ${getMemberClass(t.member)}"><i class="fas fa-user"></i> ${t.member}</span>` : ''}
                 <span class="tx-desc">${desc}</span>
               </div>
             </div>
@@ -523,13 +713,14 @@
       if (start && d < start) return false;
       if (end && d > end) return false;
       if (typeVal && (t.type || t.kind) !== typeVal) return false;
-      if (memberVal && t.member && t.member !== memberVal) return false;
+      // Si el filtro de miembro está en "Todos", no filtrar
+      if (memberVal && memberVal !== 'Todos' && t.member !== memberVal) return false;
       if (wantedCats.length) {
         const cat = (t.category || '').toLowerCase();
         if (!wantedCats.includes(cat)) return false;
       }
       if (queryVal) {
-        const text = `${t.description || ''} ${t.category || ''}`.toLowerCase();
+        const text = `${t.description || ''} ${t.category || ''} ${t.subcategory || ''}`.toLowerCase();
         if (!text.includes(queryVal)) return false;
       }
       return true;
@@ -553,11 +744,91 @@
     if (elCount) elCount.textContent = String(filtered.length);
   }
 
-  async function initCategoryFilter() {
-    const dataList = document.getElementById('categories-list');
-    if (!dataList) return;
+  const DEFAULT_CATEGORIES = [
+    // Gastos principales
+    'Vivienda','Alimentación','Transporte','Salud','Educación','Ocio','Tecnología','Ropa','Mascotas','Regalos',
+    'Impuestos','Seguros','Banco','Suscripciones','Otros',
+    // Detalles frecuentes
+    'Supermercado','Frutas y verduras','Lácteos','Carnes','Pescados','Panadería','Bebidas','Congelados',
+    'Suministros','Luz','Agua','Gas','Internet','Telefonía','Mantenimiento','Reparaciones','Electrodomésticos',
+    'Gasolina','Parking','Peajes','Taxis','Vehículo','Seguro coche',
+    'Farmacia','Médico','Dental','Óptica',
+    'Colegio','Universidad','Libros','Material escolar',
+    'Restauración','Cine','Música','Deporte','Gimnasio','Viajes','Hotel','Vuelos',
+    'Electrónica','Informática',
+    'Calzado',
+    'Comisiones','Streaming',
+    // Ingresos comunes
+    'Sueldo','Freelance','Venta','Intereses','Dividendos','Reembolso','Devolución','Alquiler recibido','Regalos recibidos'
+  ];
+
+  // Subcategorías por defecto: claves en minúsculas para coincidencia robusta
+  const DEFAULT_SUBCATEGORIES = {
+    'vivienda': ['Alquiler','Hipoteca','Comunidad','IBI','Basura','Reformas','Muebles'],
+    'alimentación': ['Supermercado','Frutería','Carnicería','Panadería','Bebidas','Takeaway'],
+    'supermercado': ['Despensa','Limpieza','Higiene','Bebidas','Frescos'],
+    'frutas y verduras': ['Frutería','Mercado','Orgánico'],
+    'lácteos': ['Leche','Yogur','Queso','Mantequilla'],
+    'carnes': ['Vacuno','Pollo','Cerdo','Pavo'],
+    'pescados': ['Blanco','Azul','Marisco'],
+    'panadería': ['Pan','Bollería','Pasteles'],
+    'bebidas': ['Agua','Refrescos','Zumos','Cerveza','Vino'],
+    'congelados': ['Verduras','Carne','Pescado','Preparados'],
+    'suministros': ['Luz','Agua','Gas','Internet','Telefonía'],
+    'luz': ['Electricidad','Tarifa','Potencia'],
+    'agua': ['Consumo','Alcantarillado'],
+    'gas': ['Consumo','Revisión'],
+    'internet': ['Fibra','Router','Operador'],
+    'telefonía': ['Móvil','Fijo','Datos'],
+    'mantenimiento': ['Hogar','Electrodomésticos','Fontanería','Electricidad'],
+    'reparaciones': ['Hogar','Electrodomésticos','Vehículo'],
+    'electrodomésticos': ['Cocina','Limpieza','Climatización'],
+    'transporte': ['Gasolina','Parking','Peajes','Taxis','Transporte público'],
+    'gasolina': ['95','98','Diésel'],
+    'vehículo': ['Mantenimiento','ITV','Impuestos','Seguro coche'],
+    'seguro coche': ['Terceros','Todo riesgo','Franquicia'],
+    'salud': ['Farmacia','Médico','Dental','Óptica','Seguro salud'],
+    'farmacia': ['Medicamentos','Parafarmacia'],
+    'médico': ['General','Especialista','Pruebas'],
+    'dental': ['Revisión','Ortodoncia','Empastes'],
+    'óptica': ['Gafas','Lentillas'],
+    'educación': ['Colegio','Universidad','Cursos','Libros','Material escolar'],
+    'ocio': ['Restauración','Cine','Música','Deporte','Gimnasio','Viajes'],
+    'restauración': ['Restaurantes','Bares','Cafeterías','Comida rápida'],
+    'cine': ['Entradas','Streaming'],
+    'música': ['Conciertos','Suscripciones'],
+    'deporte': ['Gimnasio','Material deportivo','Clases'],
+    'gimnasio': ['Cuota','Clases'],
+    'viajes': ['Hotel','Vuelos','Tren','Alquiler coche'],
+    'tecnología': ['Electrónica','Informática','Accesorios'],
+    'electrónica': ['Móviles','TV','Audio'],
+    'informática': ['Ordenadores','Periféricos','Software'],
+    'ropa': ['Hombre','Mujer','Niños'],
+    'calzado': ['Hombre','Mujer','Niños'],
+    'mascotas': ['Comida','Veterinario','Accesorios'],
+    'regalos': ['Cumpleaños','Navidad','Eventos'],
+    'impuestos': ['IRPF','IVA','IAE','Tasas'],
+    'seguros': ['Hogar','Vida','Salud','Coche'],
+    'banco': ['Comisiones','Gastos financieros'],
+    'comisiones': ['Mantenimiento','Transferencias','Tarjetas'],
+    'suscripciones': ['Streaming','Software','Servicios'],
+    'streaming': ['Netflix','Amazon','Spotify','Disney+'],
+    'otros': ['Varios','Imprevistos'],
+    // Ingresos
+    'sueldo': ['Nómina','Bonus','Horas extra'],
+    'freelance': ['Proyectos','Adelantos'],
+    'venta': ['Objetos','Segunda mano','Marketplace'],
+    'intereses': ['Cuentas','Depósitos','Bonos'],
+    'dividendos': ['Acciones','Fondos'],
+    'reembolso': ['Gastos devueltos','Reintegros'],
+    'devolución': ['Compras devueltas'],
+    'alquiler recibido': ['Mensualidad','Fianza'],
+    'regalos recibidos': ['Familia','Amigos']
+  };
+
+  async function getCategoriesMasterList() {
     const list = await getAllTransactions();
-    const cats = Array.from(new Set(
+    const fromData = Array.from(new Set(
       list
         .map(t => (t.category || '').trim())
         .filter(Boolean)
@@ -565,7 +836,72 @@
           const lc = c.toLowerCase();
           return !(lc.includes('préstamo') || lc.includes('prestamo'));
         })
-    )).sort();
+    ));
+    const union = Array.from(new Set([].concat(DEFAULT_CATEGORIES, fromData)));
+    return union.sort((a,b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  }
+
+  // Subcategorías: utilidades
+  async function getSubcategoriesForCategory(category) {
+    try {
+      const list = await getAllTransactions();
+      const norm = (category || '').trim().toLowerCase();
+      const subs = Array.from(new Set(
+        list
+          .filter(t => ((t.category || '').trim().toLowerCase() === norm))
+          .map(t => (t.subcategory || '').trim())
+          .filter(Boolean)
+      ));
+      const defaults = DEFAULT_SUBCATEGORIES[norm] || [];
+      const union = Array.from(new Set([].concat(subs, defaults)));
+      return union.sort((a,b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+    } catch (_) {
+      const norm = (category || '').trim().toLowerCase();
+      return (DEFAULT_SUBCATEGORIES[norm] || []);
+    }
+  }
+
+  async function populateSubcategoriesDatalist(category) {
+    const dl = document.getElementById('subcategories-list');
+    if (!dl) return;
+    const subs = await getSubcategoriesForCategory(category);
+    dl.innerHTML = subs.map(s => `<option value="${s}"></option>`).join('');
+  }
+
+  // Rellena un <select> de subcategorías para una categoría dada y añade "Otra…"
+  async function populateSubcategorySelect(selectEl, category) {
+    if (!selectEl) return;
+    try {
+      const subs = await getSubcategoriesForCategory(category);
+      const html = ['<option value="">(sin subcategoría)</option>']
+        .concat(subs.map(s => `<option value="${s}">${s}</option>`))
+        .concat(['<option value="__other_sub__">Otra…</option>'])
+        .join('');
+      selectEl.innerHTML = html;
+    } catch (e) {
+      selectEl.innerHTML = '<option value="">(sin subcategoría)</option><option value="__other_sub__">Otra…</option>';
+    }
+  }
+
+  // Rellena un <select> con la lista de categorías y añade opción "Otra…"
+  async function populateCategorySelect(selectEl) {
+    if (!selectEl) return;
+    try {
+      const cats = await getCategoriesMasterList();
+      const html = ['<option value="">Selecciona categoría</option>']
+        .concat(cats.map(c => `<option value="${c}">${c}</option>`))
+        .concat(['<option value="__other__">Otra…</option>'])
+        .join('');
+      selectEl.innerHTML = html;
+    } catch (e) {
+      selectEl.innerHTML = '<option value="">Selecciona categoría</option><option value="__other__">Otra…</option>';
+    }
+  }
+
+  async function initCategoryFilter() {
+    const dataList = document.getElementById('categories-list');
+    if (!dataList) return;
+    const cats = await getCategoriesMasterList();
     dataList.innerHTML = cats.map(c => `<option value="${c}"></option>`).join('');
   }
 
@@ -710,7 +1046,7 @@
       const tx = await DB.get('transactions', id);
       if (!tx) return;
       const currentDate = tx.date ? String(tx.date).slice(0, 10) : new Date().toISOString().slice(0, 10);
-      const content = `
+          const content = `
         <form id="tx-edit-form" class="tx-edit-form">
           <div class="row">
             <input type="date" id="edit-date" value="${currentDate}" required />
@@ -718,14 +1054,38 @@
             <select id="edit-type" required>
               <option value="expense" ${ (tx.type||tx.kind) === 'expense' ? 'selected' : '' }>Gasto</option>
               <option value="income" ${ (tx.type||tx.kind) === 'income' ? 'selected' : '' }>Ingreso</option>
+              <option value="transferencia" ${ (tx.type||tx.kind) === 'transferencia' ? 'selected' : '' }>Transferencia</option>
+              <option value="traspaso" ${ (tx.type||tx.kind) === 'traspaso' ? 'selected' : '' }>Traspaso</option>
             </select>
           </div>
           <div class="row">
-            <input type="text" id="edit-category" value="${tx.category || ''}" placeholder="Categoría" required />
+            <select id="edit-category" class="form-control" required></select>
+            <input type="text" id="edit-category-other" placeholder="Otra categoría" style="display:none;" />
+            <select id="edit-subcategory" class="form-control"></select>
+            <input type="text" id="edit-subcategory-other" placeholder="Otra subcategoría" style="display:none;" />
             <select id="edit-member" class="form-control">
               ${typeof FamilyManager !== 'undefined' ? FamilyManager.generateMemberOptions(tx.member || 'Todos') : '<option value="Todos">Todos</option>'}
             </select>
             <input type="text" id="edit-desc" value="${tx.description || tx.concept || ''}" placeholder="Descripción" />
+          </div>
+          <hr />
+          <div class="row">
+            <label for="edit-split" class="form-label">Dividir en 2</label>
+            <input type="checkbox" id="edit-split" />
+          </div>
+          <div id="edit-split-section" style="display:none;">
+            <div class="row">
+              <input type="number" step="0.01" id="edit-amount2" value="" placeholder="Cantidad parte 2" />
+              <select id="edit-member2" class="form-control">
+                ${typeof FamilyManager !== 'undefined' ? FamilyManager.generateMemberOptions(tx.member || 'Todos') : '<option value="Todos">Todos</option>'}
+              </select>
+            </div>
+            <div class="row">
+              <select id="edit-category2" class="form-control"></select>
+              <input type="text" id="edit-category2-other" placeholder="Otra categoría (parte 2)" style="display:none;" />
+              <select id="edit-subcategory2" class="form-control"></select>
+              <input type="text" id="edit-subcategory2-other" placeholder="Otra subcategoría (parte 2)" style="display:none;" />
+            </div>
           </div>
         </form>
       `;
@@ -737,30 +1097,217 @@
           buttons: [
             { text: 'Cancelar', type: 'secondary', onClick: () => closeModal() },
             { text: 'Guardar', type: 'primary', onClick: async () => {
-                const updated = {
-                  ...tx,
-                  id: tx.id,
-                  date: document.getElementById('edit-date').value,
-                  amount: Number(document.getElementById('edit-amount').value) || 0,
-                  type: document.getElementById('edit-type').value,
-                  category: document.getElementById('edit-category').value.trim(),
-                  member: document.getElementById('edit-member').value,
-                  description: document.getElementById('edit-desc').value.trim(),
+                const totalAmount = Number(document.getElementById('edit-amount').value) || 0;
+                const type = document.getElementById('edit-type').value;
+                const member1 = document.getElementById('edit-member').value;
+                const catSel1 = document.getElementById('edit-category').value;
+                const category1 = catSel1 === '__other__' ? (document.getElementById('edit-category-other').value || '').trim() : (catSel1 || '').trim();
+                const desc = document.getElementById('edit-desc').value.trim();
+                const dateVal = document.getElementById('edit-date').value;
+                const doSplit = !!document.getElementById('edit-split').checked;
+                if (!doSplit) {
+                  const subSel1 = document.getElementById('edit-subcategory').value;
+                  const subOther1 = (document.getElementById('edit-subcategory-other').value || '').trim();
+                  const subVal1 = (subSel1 === '__other_sub__' ? subOther1 : (subSel1 || '')).trim();
+                  const updated = {
+                    ...tx,
+                    id: tx.id,
+                    date: dateVal,
+                    amount: totalAmount,
+                    type,
+                    category: category1,
+                    subcategory: subVal1 || undefined,
+                    member: member1,
+                    description: desc,
+                    updated_at: new Date().toISOString()
+                  };
+                  try {
+                    await DB.add('transactions', updated);
+                    if (typeof showNotification === 'function') showNotification('Transacción actualizada', 'success');
+                  } catch (err) {
+                    console.error('Error actualizando transacción', err);
+                    if (typeof showNotification === 'function') showNotification('Error al actualizar', 'error');
+                  }
+                  closeModal();
+                  renderTransactionsList();
+                  try { window.dispatchEvent(new CustomEvent('transactions-changed', { detail: { reason: 'edit', ids: [tx.id] } })); } catch (_) {}
+                  return;
+                }
+                // División en dos
+                const amount2 = Number(document.getElementById('edit-amount2').value) || 0;
+                if (!(amount2 > 0 && amount2 < totalAmount)) {
+                  if (typeof showNotification === 'function') showNotification('Indica una cantidad válida para la parte 2', 'warning');
+                  return;
+                }
+                const amount1 = totalAmount - amount2;
+                const member2 = document.getElementById('edit-member2').value || member1;
+                const catSel2 = document.getElementById('edit-category2').value;
+                const category2 = catSel2 === '__other__' ? (document.getElementById('edit-category2-other').value || '').trim() : (catSel2 || '').trim();
+                const subSel1 = document.getElementById('edit-subcategory').value;
+                const subOther1 = (document.getElementById('edit-subcategory-other').value || '').trim();
+                const subcategory1 = (subSel1 === '__other_sub__' ? subOther1 : (subSel1 || '')).trim();
+                const subSel2 = document.getElementById('edit-subcategory2').value;
+                const subOther2 = (document.getElementById('edit-subcategory2-other').value || '').trim();
+                const subVal2 = (subSel2 === '__other_sub__' ? subOther2 : (subSel2 || '')).trim();
+                const subcategory2 = subVal2 || subcategory1;
+                const base = {
+                  date: dateVal,
+                  type,
+                  description: desc,
+                  created_at: new Date().toISOString(),
                   updated_at: new Date().toISOString()
                 };
+                const new1 = { ...base, id: 'trans_' + Date.now() + '_' + Math.random().toString(16).slice(2), amount: amount1, category: category1, subcategory: subcategory1 || undefined, member: member1 };
+                const new2 = { ...base, id: 'trans_' + Date.now() + '_' + Math.random().toString(16).slice(2), amount: amount2, category: category2 || category1, subcategory: subcategory2 || undefined, member: member2 };
                 try {
-                  await DB.add('transactions', updated);
-                  if (typeof showNotification === 'function') showNotification('Transacción actualizada', 'success');
+                  await DB.delete('transactions', tx.id);
+                } catch (_) {}
+                try {
+                  await DB.add('transactions', new1);
+                  await DB.add('transactions', new2);
+                  if (typeof showNotification === 'function') showNotification('Transacción dividida en dos', 'success');
+                  // Aviso si los filtros activos pueden ocultar las nuevas transacciones
+                  try {
+                    const visible = getFilteredTransactions([new1, new2]).length;
+                    const filtersActive = (
+                      (document.getElementById('flt-start')?.value || '') ||
+                      (document.getElementById('flt-end')?.value || '') ||
+                      (document.getElementById('flt-type')?.value || '') ||
+                      (document.getElementById('flt-member')?.value || '') ||
+                      (document.getElementById('flt-query')?.value || '') ||
+                      (getSelectedCategories() || []).length
+                    );
+                    if (!visible && filtersActive && typeof UIManager !== 'undefined' && UIManager.showToast) {
+                      try { UIManager.showToast('Hay filtros activos; puede que no veas las transacciones creadas al dividir.', 'warning'); } catch (_) {}
+                    }
+                  } catch (_) {}
                 } catch (err) {
-                  console.error('Error actualizando transacción', err);
-                  if (typeof showNotification === 'function') showNotification('Error al actualizar', 'error');
+                  console.error('Error al dividir transacción', err);
+                  if (typeof showNotification === 'function') showNotification('Error al guardar división', 'error');
                 }
                 closeModal();
                 renderTransactionsList();
+                try { window.dispatchEvent(new CustomEvent('transactions-changed', { detail: { reason: 'split', ids: [tx.id, new1.id, new2.id] } })); } catch (_) {}
               }
             }
           ]
         });
+        // Rellenar desplegable y estado de "Otra..." en el modal ya renderizado
+        try {
+          const sel = document.getElementById('edit-category');
+          const other = document.getElementById('edit-category-other');
+          const splitChk = document.getElementById('edit-split');
+          const splitSection = document.getElementById('edit-split-section');
+          if (sel) {
+            await populateCategorySelect(sel);
+            const catsList = await getCategoriesMasterList();
+            const currentCat = (tx.category || '').trim();
+            if (currentCat && catsList.includes(currentCat)) {
+              sel.value = currentCat;
+              if (other) { other.style.display = 'none'; other.value = ''; }
+            } else {
+              sel.value = '__other__';
+              if (other) { other.style.display = ''; other.value = currentCat; }
+            }
+            // Subcategorías: poblar select y manejar "Otra…"
+            try {
+              const subSel = document.getElementById('edit-subcategory');
+              const subOther = document.getElementById('edit-subcategory-other');
+              const refreshSubcats = async () => {
+                const catVal = sel.value === '__other__' ? (other.value || '').trim() : (sel.value || '').trim();
+                await populateSubcategorySelect(subSel, catVal);
+                const currentSub = (tx.subcategory || '').trim();
+                const subs = await getSubcategoriesForCategory(catVal);
+                if (currentSub && subs.includes(currentSub)) {
+                  subSel.value = currentSub;
+                  if (subOther) { subOther.style.display = 'none'; subOther.value = ''; }
+                } else if (currentSub) {
+                  subSel.value = '__other_sub__';
+                  if (subOther) { subOther.style.display = ''; subOther.value = currentSub; }
+                } else {
+                  subSel.value = '';
+                  if (subOther) { subOther.style.display = 'none'; subOther.value = ''; }
+                }
+              };
+              await refreshSubcats();
+              if (sel && other) {
+                sel.addEventListener('change', refreshSubcats);
+                other.addEventListener('input', refreshSubcats);
+              }
+              if (subSel && subOther) {
+                subSel.addEventListener('change', () => {
+                  if (subSel.value === '__other_sub__') {
+                    subOther.style.display = '';
+                    subOther.focus();
+                  } else {
+                    subOther.style.display = 'none';
+                    subOther.value = '';
+                  }
+                });
+              }
+            } catch (_) {}
+            if (sel && other) {
+              sel.addEventListener('change', () => {
+                if (sel.value === '__other__') {
+                  other.style.display = '';
+                  other.focus();
+                } else {
+                  other.style.display = 'none';
+                  other.value = '';
+                }
+              });
+            }
+            // Inicializar sección de división
+            if (splitChk && splitSection) {
+              splitChk.addEventListener('change', () => {
+                splitSection.style.display = splitChk.checked ? '' : 'none';
+              });
+            }
+            // Rellenar categoría 2 y su comportamiento "Otra…"
+            const sel2 = document.getElementById('edit-category2');
+            const other2 = document.getElementById('edit-category2-other');
+            if (sel2) {
+              await populateCategorySelect(sel2);
+              sel2.value = '';
+              if (sel2 && other2) {
+                sel2.addEventListener('change', () => {
+                  if (sel2.value === '__other__') {
+                    other2.style.display = '';
+                    other2.focus();
+                  } else {
+                    other2.style.display = 'none';
+                    other2.value = '';
+                  }
+                });
+              }
+              // Subcategorías parte 2: poblar select y manejar "Otra…"
+              try {
+                const subSel2 = document.getElementById('edit-subcategory2');
+                const subOther2 = document.getElementById('edit-subcategory2-other');
+                const refreshSubcats2 = async () => {
+                  const catVal2 = sel2.value === '__other__' ? (other2.value || '').trim() : (sel2.value || '').trim();
+                  await populateSubcategorySelect(subSel2, catVal2);
+                  subSel2.value = '';
+                  if (subOther2) { subOther2.style.display = 'none'; subOther2.value = ''; }
+                };
+                await refreshSubcats2();
+                sel2.addEventListener('change', refreshSubcats2);
+                if (other2) other2.addEventListener('input', refreshSubcats2);
+                if (subSel2 && subOther2) {
+                  subSel2.addEventListener('change', () => {
+                    if (subSel2.value === '__other_sub__') {
+                      subOther2.style.display = '';
+                      subOther2.focus();
+                    } else {
+                      subOther2.style.display = 'none';
+                      subOther2.value = '';
+                    }
+                  });
+                }
+              } catch (_) {}
+            }
+          }
+        } catch (_) {}
       } else {
         // Fallback simple
         const ok = confirm('Guardar cambios en la transacción?');
@@ -786,6 +1333,9 @@
         if (typeof showNotification === 'function') showNotification('Error al eliminar', 'error');
       }
       renderTransactionsList();
+      try {
+        window.dispatchEvent(new CustomEvent('transactions-changed', { detail: { reason: 'delete', ids: [id] } }));
+      } catch (_) {}
     };
     if (typeof showModal === 'function') {
       showModal({
@@ -957,11 +1507,60 @@
       async add(tx) {
         try {
           await DB.add('transactions', tx);
+          try {
+            window.dispatchEvent(new CustomEvent('transactions-changed', { detail: { reason: 'shim-add', ids: [tx.id] } }));
+          } catch (_) {}
           return tx.id || true;
         } catch (e) {
           console.error('Shim: Error añadiendo transacción', e);
           throw e;
         }
+      }
+    };
+  }
+
+  // Definir addTransaction global si no existe (para BankExtractUI)
+  if (typeof window.addTransaction !== 'function') {
+    window.addTransaction = async function(appTx) {
+      const tx = {
+        id: appTx.id || ('tx_' + Date.now() + '_' + Math.random().toString(36).slice(2)),
+        date: appTx.date || new Date().toISOString().slice(0,10),
+        amount: Number(appTx.amount) || 0,
+        type: appTx.type === 'income' ? 'income' : 'expense',
+        category: (appTx.category || '').trim() || 'Otros gastos',
+        member: (appTx.member || 'Familia'),
+        description: (appTx.description || appTx.notes || '').trim()
+      };
+      try {
+        await DB.add('transactions', tx);
+        renderTransactionsList();
+        renderTransactionsSummary();
+        try {
+          window.dispatchEvent(new CustomEvent('transactions-changed', { detail: { reason: 'import-add', ids: [tx.id] } }));
+        } catch (_) {}
+        if (typeof showNotification === 'function') showNotification('Transacción añadida desde extracto', 'success');
+        return true;
+      } catch (e) {
+        console.error('Error en addTransaction global', e);
+        if (typeof showNotification === 'function') showNotification('Error añadiendo transacción de extracto', 'error');
+        return false;
+      }
+    };
+  }
+
+  // Compatibilidad con TransactionManager.addTransaction usado por bank-extract-ui-mini
+  if (typeof window.TransactionManager === 'undefined') {
+    window.TransactionManager = {
+      async addTransaction(appTx) {
+        if (typeof window.addTransaction === 'function') {
+          return window.addTransaction(appTx);
+        }
+        // fallback a TransactionsManager.add si existe
+        if (window.TransactionsManager && typeof window.TransactionsManager.add === 'function') {
+          try { await window.TransactionsManager.add(appTx); return true; } catch (_) { return false; }
+        }
+        console.error('No hay método para añadir transacciones (TransactionManager/addTransaction)');
+        return false;
       }
     };
   }
@@ -1145,6 +1744,17 @@
           </div>
           <div id="install-help" class="hint">Si el botón no está disponible, usa el menú del navegador: "Instalar aplicación".</div>
         </div>
+        <div class="card">
+          <h3>Sujetos</h3>
+          <p class="hint">Gestiona los miembros/sujetos para asignación y análisis.</p>
+          <div class="subjects-manage">
+            <div class="subjects-actions" style="display:flex;gap:8px;align-items:center;">
+              <input id="subject-new-input" class="form-control" type="text" placeholder="Nuevo sujeto" style="flex:1;" />
+              <button id="subject-add-btn" class="btn"><i class="fas fa-plus"></i> Añadir</button>
+            </div>
+            <ul id="subjects-list" class="list" style="margin-top:12px;"></ul>
+          </div>
+        </div>
       </section>
     `;
     const themeBtn = document.getElementById('settings-theme-toggle');
@@ -1208,6 +1818,69 @@
         e.target.value = '';
       }
     });
+
+    // ===== Gestión de Sujetos =====
+    const subjectsListEl = document.getElementById('subjects-list');
+    const subjectAddBtn = document.getElementById('subject-add-btn');
+    const subjectNewInput = document.getElementById('subject-new-input');
+
+    function renderSubjectsList() {
+      if (!subjectsListEl || typeof FamilyManager === 'undefined') return;
+      const members = FamilyManager.getMembers();
+      subjectsListEl.innerHTML = members.map(m => {
+        const isFixed = (m === 'Todos' || m === 'Otros');
+        const controls = isFixed ? '' : `
+          <button class="btn small edit-btn" title="Renombrar"><i class="fas fa-edit"></i></button>
+          <button class="btn small danger delete-btn" title="Eliminar"><i class="fas fa-trash"></i></button>
+        `;
+        return `<li class="subject-item" data-name="${m}" style="display:flex;align-items:center;gap:8px;justify-content:space-between;">
+                  <span class="name">${m}</span>
+                  <span class="item-actions">${controls}</span>
+                </li>`;
+      }).join('');
+
+      subjectsListEl.querySelectorAll('.edit-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const li = e.target.closest('.subject-item');
+          const oldName = li?.getAttribute('data-name') || '';
+          const newName = prompt('Nuevo nombre para el sujeto:', oldName);
+          if (!newName || newName.trim() === '' || newName === oldName) return;
+          const ok = FamilyManager.renameMember(oldName, newName.trim());
+          if (!ok) { if (typeof showNotification === 'function') showNotification('No se pudo renombrar (nombre inválido o duplicado)', 'warning'); return; }
+          await FamilyManager.saveToSettings();
+          renderSubjectsList();
+          if (typeof showNotification === 'function') showNotification('Sujeto renombrado', 'success');
+        });
+      });
+
+      subjectsListEl.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const li = e.target.closest('.subject-item');
+          const name = li?.getAttribute('data-name') || '';
+          const confirmed = confirm(`¿Eliminar sujeto "${name}"?`);
+          if (!confirmed) return;
+          const ok = FamilyManager.removeMember(name);
+          if (!ok) { if (typeof showNotification === 'function') showNotification('No se puede eliminar este sujeto', 'warning'); return; }
+          await FamilyManager.saveToSettings();
+          renderSubjectsList();
+          if (typeof showNotification === 'function') showNotification('Sujeto eliminado', 'success');
+        });
+      });
+    }
+
+    if (subjectAddBtn) subjectAddBtn.addEventListener('click', async () => {
+      const name = (subjectNewInput?.value || '').trim();
+      if (!name) { if (typeof showNotification === 'function') showNotification('Escribe un nombre para el sujeto', 'info'); return; }
+      const ok = FamilyManager.addMember(name);
+      if (!ok) { if (typeof showNotification === 'function') showNotification('El sujeto ya existe o es inválido', 'warning'); return; }
+      await FamilyManager.saveToSettings();
+      subjectNewInput.value = '';
+      renderSubjectsList();
+      if (typeof showNotification === 'function') showNotification('Sujeto añadido', 'success');
+    });
+
+    // Render inicial
+    renderSubjectsList();
 
     // Copias de seguridad
     const backupInfo = document.getElementById('backup-info');
@@ -1342,7 +2015,7 @@
         const d = new Date(now);
         d.setMonth(d.getMonth() - i);
         const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
-        const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+        const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
         const within = all.filter(t => {
           const td = new Date(t.date);
           const matchDate = td >= monthStart && td <= monthEnd;
@@ -1465,7 +2138,7 @@
     const months = Array.from({ length: 12 }, (_, m) => m);
     const monthly = months.map((m) => {
       const start = new Date(year, m, 1);
-      const end = new Date(year, m + 1, 0);
+      const end = new Date(year, m + 1, 0, 23, 59, 59, 999);
       const within = all.filter(t => { 
         const d = new Date(t.date);
         const matchDate = d >= start && d <= end;
@@ -1521,7 +2194,7 @@
 
   async function showMonthDetail(year, month) {
     const start = new Date(year, month, 1);
-    const end = new Date(year, month + 1, 0);
+    const end = new Date(year, month + 1, 0, 23, 59, 59, 999);
     const all = await getAllTransactions();
     const within = all.filter(t => { const d = new Date(t.date); return d >= start && d <= end; });
     const rows = within.slice().sort((a,b)=> new Date(b.date) - new Date(a.date)).map(t => `
@@ -1559,13 +2232,13 @@
     }).join('');
     const summaryHtml = `
       <div class="forecast-summary">
-        <div><strong>Total anual:</strong> <span id="forecastTotal">€0,00</span></div>
-        <div><strong>Promedio mensual:</strong> <span id="forecastAvg">€0,00</span></div>
+        <div><strong>Total anual:</strong> <span id="forecastTotal">${window.formatAmount ? window.formatAmount(0) : '0,00€'}</span></div>
+        <div><strong>Promedio mensual:</strong> <span id="forecastAvg">${window.formatAmount ? window.formatAmount(0) : '0,00€'}</span></div>
         <div class="quarter-summary" id="quarterSummary">
-          <span><strong>Q1:</strong> €0,00</span>
-          <span><strong>Q2:</strong> €0,00</span>
-          <span><strong>Q3:</strong> €0,00</span>
-          <span><strong>Q4:</strong> €0,00</span>
+          <span><strong>Q1:</strong> ${window.formatAmount ? window.formatAmount(0) : '0,00€'}</span>
+          <span><strong>Q2:</strong> ${window.formatAmount ? window.formatAmount(0) : '0,00€'}</span>
+          <span><strong>Q3:</strong> ${window.formatAmount ? window.formatAmount(0) : '0,00€'}</span>
+          <span><strong>Q4:</strong> ${window.formatAmount ? window.formatAmount(0) : '0,00€'}</span>
         </div>
       </div>
       <div class="inline-actions">
@@ -1594,7 +2267,7 @@
       const values = Array.from(el.querySelectorAll('input[data-month]')).map(inp => Number(inp.value) || 0);
       const total = values.reduce((s,v)=> s+v, 0);
       const avg = total / (values.length || 12);
-      const fmt = (n) => new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(Math.round(n * 100) / 100);
+      const fmt = (n) => window.formatAmount(Math.round((Number(n)||0) * 100) / 100);
       const totEl = document.getElementById('forecastTotal');
       const avgEl = document.getElementById('forecastAvg');
       if (totEl) totEl.textContent = fmt(total);
@@ -1691,7 +2364,7 @@
         for (let i = 11; i >= 0; i--) {
           const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
           const start = new Date(d.getFullYear(), d.getMonth(), 1);
-          const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+          const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
           const within = all.filter(t => {
             const td = new Date(t.date);
             const matchDate = td >= start && td <= end;
@@ -1709,7 +2382,7 @@
         const year = window === 'prev' ? (refYear - 1) : refYear;
         for (let m = 0; m < 12; m++) {
           const start = new Date(year, m, 1);
-          const end = new Date(year, m + 1, 0);
+          const end = new Date(year, m + 1, 0, 23, 59, 59, 999);
           const within = all.filter(t => {
             const td = new Date(t.date);
             const matchDate = td >= start && td <= end;
@@ -1784,20 +2457,28 @@
     if (!wrap) return;
     const all = await getAllTransactions();
     const memberSel = getSelectedForecastMember();
-    // Últimos 3 meses por categoría (solo gastos, excluye capital préstamo)
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    // Media mensual del año 2025 por categoría (solo gastos, excluye capital préstamo)
+    const start = new Date(2025, 0, 1);
+    const end = new Date(2026, 0, 1);
     const catMap = {};
+    const catMonthSet = {};
     all.forEach(t => {
       const d = new Date(t.date);
       const matchMember = !memberSel || !t.member || t.member === memberSel;
-      if (d >= start && matchMember && (t.type || t.kind) === 'expense' && !isLoanCapitalTransaction(t)) {
+      if (d >= start && d < end && matchMember && (t.type || t.kind) === 'expense' && !isLoanCapitalTransaction(t)) {
         const cat = t.category || 'Otros';
         catMap[cat] = (catMap[cat] || 0) + (Number(t.amount) || 0);
+        const m = d.getMonth();
+        if (!catMonthSet[cat]) catMonthSet[cat] = new Set();
+        catMonthSet[cat].add(m);
       }
     });
     const cats = Object.entries(catMap).sort((a,b)=> b[1]-a[1]).slice(0,12);
-    const avgMap = Object.fromEntries(cats.map(([c,total]) => [c, total/3]));
+    const avgMap = Object.fromEntries(cats.map(([c,total]) => {
+      const monthsWithData = catMonthSet[c] ? catMonthSet[c].size : 0;
+      const denom = monthsWithData > 0 ? monthsWithData : 12;
+      return [c, total/denom];
+    }));
     // Cargar presupuesto guardado
     let saved = null;
     try { saved = await DB.get('settings','expense_budget'); } catch(_) { saved = null; }
@@ -1805,7 +2486,9 @@
     const rows = cats.map(([c]) => {
       const avg = avgMap[c] || 0;
       const limit = Number(budget[c] || 0);
-      return `<tr><td>${c}</td><td>${formatAmount(avg)}</td><td><input type="number" step="0.01" data-cat="${c}" value="${limit}" /></td></tr>`;
+      const monthsWithData = catMonthSet[c] ? catMonthSet[c].size : 0;
+      const monthsBadge = ` <span class="months-badge">(${monthsWithData} meses)</span>`;
+      return `<tr><td>${c}</td><td>${formatAmount(avg)}${monthsBadge}</td><td><input type="number" step="0.01" data-cat="${c}" value="${limit}" /></td></tr>`;
     }).join('');
     wrap.innerHTML = `
       <div class="table-wrap">
@@ -1814,7 +2497,7 @@
           <tbody>${rows || '<tr><td colspan="3">Sin datos</td></tr>'}</tbody>
         </table>
       </div>
-      <p class="hint">Se calcula la media de los últimos 3 meses.</p>
+      <p class="hint">Se calcula la media mensual de 2025 ajustada por meses con datos.</p>
     `;
     const saveBtn = document.getElementById('saveExpenseBudget');
     if (saveBtn) saveBtn.onclick = async () => {
@@ -1853,7 +2536,7 @@
     for (let i = months-1; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const start = new Date(d.getFullYear(), d.getMonth(), 1);
-      const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+      const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
       const within = all.filter(t => { 
         const td = new Date(t.date); 
         const matchDate = td >= start && td <= end; 
@@ -1869,7 +2552,7 @@
     for (let i = months-1; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const start = new Date(d.getFullYear(), d.getMonth(), 1);
-      const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+      const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
       const within = all.filter(t => { 
         const td = new Date(t.date); 
         const matchDate = td >= start && td <= end; 
@@ -1903,7 +2586,7 @@
     if (!sel) return;
     const optionsHtml = (typeof FamilyManager !== 'undefined')
       ? FamilyManager.generateMemberOptions('Todos')
-      : '<option value="">Todos</option>';
+      : '<option value="">Sujeto</option>';
     sel.innerHTML = optionsHtml;
     const applyBtn = document.getElementById('applyForecastFilters');
     if (applyBtn) applyBtn.addEventListener('click', () => {
@@ -1973,7 +2656,15 @@
         const detailsMap = {};
         for (const tx of txs) {
           try {
-            await window.TransactionsManager.add(tx);
+            if (typeof window.addTransaction === 'function') {
+              await window.addTransaction(tx);
+            } else if (window.TransactionsManager && typeof window.TransactionsManager.add === 'function') {
+              await window.TransactionsManager.add(tx);
+            } else if (window.DB && typeof window.DB.add === 'function') {
+              await window.DB.add('transactions', tx);
+            } else {
+              throw new Error('No hay método disponible para guardar transacciones');
+            }
             saved++;
             if (typeof onProgress === 'function') onProgress(saved, txs.length);
             const cat = tx.category || 'otros';
@@ -2276,7 +2967,6 @@
           <div class="loan-actions">
             <button class="btn" data-action="schedule">Plan de pagos</button>
             <button class="btn" data-action="edit">Editar</button>
-            ${doneInst > 0 ? '<button class="btn warning" data-action="undo-payment">Deshacer último pago</button>' : ''}
             <button class="btn danger" data-action="delete">Eliminar</button>
           </div>
         </div>
@@ -2292,8 +2982,6 @@
             showLoanScheduleModal(loan);
           } else if (action === 'edit') {
             showEditLoanModal(loan);
-          } else if (action === 'undo-payment') {
-            confirmUndoLastPayment(loan);
           } else if (action === 'delete') {
             confirmDeleteLoan(id);
           }
@@ -2597,12 +3285,14 @@
       }
     }
     
-    const doneCount = Array.isArray(loan.payments) ? loan.payments.length : 0;
-    const table = schedule.length ? schedule.map((r, i) => {
-      const isPaid = i < doneCount;
-      const actionCell = isPaid
-        ? '<span class="badge success">Pagado</span>'
-        : `<button class="btn btn-small" data-action="pay-installment" data-idx="${r.idx}" data-amount="${Number(r.amount)||0}" data-date="${r.date}">Pagar</button>`;
+    const payments = Array.isArray(loan.payments) ? loan.payments : [];
+    const paidIdxSet = new Set(payments.map(p => Number(p.idx)).filter(n => Number.isFinite(n)));
+    const table = schedule.length ? schedule.map((r) => {
+      const isPaid = paidIdxSet.has(Number(r.idx));
+      let actionCell = '';
+      actionCell = isPaid
+        ? `<div class="action-inline"><span class="badge success">Pagada</span><button class="btn btn-small warning" data-action="mark-pending" data-idx="${r.idx}">Marcar pendiente</button></div>`
+        : `<div class="action-inline"><span class="badge warning">Pendiente</span><button class="btn btn-small" data-action="pay-installment" data-idx="${r.idx}" data-amount="${Number(r.amount)||0}" data-date="${r.date}">Pagar</button></div>`;
       return `
       <tr>
         <td>#${r.idx}</td>
@@ -2677,15 +3367,93 @@
             btn.addEventListener('click', async () => {
               const amount = Number(btn.getAttribute('data-amount')) || 0;
               const date = btn.getAttribute('data-date') || new Date().toISOString().slice(0,10);
+              const idx = Number(btn.getAttribute('data-idx')) || null;
               if (amount <= 0) { if (typeof showNotification === 'function') showNotification('Importe de cuota inválido', 'error'); return; }
               try {
-                await LoansManager.registerPayment(loan.id, amount, date);
+                await LoansManager.registerPayment(loan.id, amount, date, null, idx);
                 if (typeof showNotification === 'function') showNotification('Cuota pagada', 'success');
-                closeModal();
-                loadFinancing();
+                // Actualizar UI sin cerrar el modal
+                if (!Array.isArray(loan.payments)) loan.payments = [];
+                loan.payments.push({ date, amount, idx });
+                const cell = btn.closest('td');
+                if (cell) {
+                  cell.innerHTML = `<div class="action-inline"><span class="badge success">Pagada</span><button class="btn btn-small warning" data-action="mark-pending" data-idx="${idx}">Marcar pendiente</button></div>`;
+                  const newBtn = cell.querySelector('button[data-action="mark-pending"]');
+                  if (newBtn) {
+                    newBtn.addEventListener('click', async () => {
+                      try {
+                        await LoansManager.markInstallmentPending(loan.id, idx);
+                        loan.payments = loan.payments.filter(p => Number(p.idx) !== Number(idx));
+                        // Obtener valores actuales de la fila
+                        const tr = newBtn.closest('tr');
+                        const amountEl = tr ? tr.querySelector('.sched-amount') : null;
+                        const dateEl = tr ? tr.querySelector('.sched-date') : null;
+                        const curAmount = amountEl ? Number(amountEl.value) || amount : amount;
+                        const curDate = dateEl ? dateEl.value || date : date;
+                        cell.innerHTML = `<div class="action-inline"><span class="badge warning">Pendiente</span><button class="btn btn-small" data-action="pay-installment" data-idx="${idx}" data-amount="${curAmount}" data-date="${curDate}">Pagar</button></div>`;
+                        const payBtnAgain = cell.querySelector('button[data-action="pay-installment"]');
+                        if (payBtnAgain) {
+                          payBtnAgain.addEventListener('click', async () => {
+                            try {
+                              const a = Number(payBtnAgain.getAttribute('data-amount')) || curAmount;
+                              const d = payBtnAgain.getAttribute('data-date') || curDate;
+                              await LoansManager.registerPayment(loan.id, a, d, null, idx);
+                              loan.payments.push({ date: d, amount: a, idx });
+                              cell.innerHTML = `<div class="action-inline"><span class="badge success">Pagada</span><button class="btn btn-small warning" data-action="mark-pending" data-idx="${idx}">Marcar pendiente</button></div>`;
+                            } catch (err) {
+                              console.error('Error al pagar cuota:', err);
+                              if (typeof showNotification === 'function') showNotification('Error al pagar cuota', 'error');
+                            }
+                          });
+                        }
+                      } catch (err) {
+                        console.error('Error al marcar como pendiente:', err);
+                        if (typeof showNotification === 'function') showNotification('Error al marcar pendiente', 'error');
+                      }
+                    });
+                  }
+                }
               } catch (err) {
                 console.error('Error al pagar cuota:', err);
                 if (typeof showNotification === 'function') showNotification('Error al pagar cuota', 'error');
+              }
+            });
+          });
+          const unpayButtons = Array.from(document.querySelectorAll('button[data-action="mark-pending"]'));
+          unpayButtons.forEach(btn => {
+            btn.addEventListener('click', async () => {
+              try {
+                const idx = Number(btn.getAttribute('data-idx')) || null;
+                await LoansManager.markInstallmentPending(loan.id, idx);
+                // Actualizar estado local y UI sin cerrar el modal
+                loan.payments = (loan.payments || []).filter(p => Number(p.idx) !== Number(idx));
+                const cell = btn.closest('td');
+                const tr = btn.closest('tr');
+                const amountEl = tr ? tr.querySelector('.sched-amount') : null;
+                const dateEl = tr ? tr.querySelector('.sched-date') : null;
+                const amount = amountEl ? Number(amountEl.value) || 0 : 0;
+                const date = dateEl ? dateEl.value || new Date().toISOString().slice(0,10) : new Date().toISOString().slice(0,10);
+                if (cell) {
+                  cell.innerHTML = `<div class="action-inline"><span class="badge warning">Pendiente</span><button class="btn btn-small" data-action="pay-installment" data-idx="${idx}" data-amount="${amount}" data-date="${date}">Pagar</button></div>`;
+                  const payBtn = cell.querySelector('button[data-action="pay-installment"]');
+                  if (payBtn) {
+                    payBtn.addEventListener('click', async () => {
+                      try {
+                        const a = Number(payBtn.getAttribute('data-amount')) || amount;
+                        const d = payBtn.getAttribute('data-date') || date;
+                        await LoansManager.registerPayment(loan.id, a, d, null, idx);
+                        loan.payments.push({ date: d, amount: a, idx });
+                        cell.innerHTML = `<div class="action-inline"><span class="badge success">Pagada</span><button class="btn btn-small warning" data-action="mark-pending" data-idx="${idx}">Marcar pendiente</button></div>`;
+                      } catch (err) {
+                        console.error('Error al pagar cuota:', err);
+                        if (typeof showNotification === 'function') showNotification('Error al pagar cuota', 'error');
+                      }
+                    });
+                  }
+                }
+              } catch (err) {
+                console.error('Error al marcar como pendiente:', err);
+                if (typeof showNotification === 'function') showNotification('Error al marcar pendiente', 'error');
               }
             });
           });

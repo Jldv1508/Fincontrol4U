@@ -80,7 +80,7 @@ const BankExtractUI = {
                         <div class="transaction-date">${formattedDate}</div>
                     </div>
                     <div class="transaction-amount ${amountClass}">
-                        ${amountPrefix}${transaction.amount.toFixed(2)} €
+                        ${amountPrefix}${window.formatAmount(Math.abs(transaction.amount))}
                     </div>
                     <div class="transaction-actions">
                         <button class="btn-icon add-to-app" title="Añadir a la aplicación">

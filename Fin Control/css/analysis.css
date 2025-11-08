@@ -1,22 +1,215 @@
-/* Estilos básicos para la vista de análisis mensual */
+/* Análisis - diseño práctico y responsivo */
+.monthly-analysis { padding: 1rem; }
 .monthly-analysis .analysis-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
+  position: sticky; top: 0; z-index: 5;
+  background: var(--app-bg, #fafafa);
+  backdrop-filter: blur(6px);
+  padding: .5rem .25rem;
+  margin-bottom: .5rem;
+  border-bottom: 1px solid var(--border-color, #eaeaea);
 }
-.monthly-analysis .filters { display: flex; gap: .5rem; align-items: center; }
-.summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: .75rem; margin-bottom: 1rem; }
-.summary-card { background: var(--card-bg, #fff); border-radius: 8px; padding: .75rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-.summary-card.income h3 { color: #4cc9f0; }
-.summary-card.expense h3 { color: #f72585; }
+.monthly-analysis .analysis-toolbar h2 { margin: 0; display: flex; align-items: center; gap: .5rem; }
+.monthly-analysis .filters {
+  display: flex; flex-wrap: nowrap; gap: .5rem; align-items: center;
+}
+.monthly-analysis .preset-group { display: flex; gap: .25rem; align-items: center; flex-wrap: wrap; }
+.monthly-analysis .preset-group .label { color: var(--text-secondary, #666); margin-right: .25rem; font-size: .9rem; }
+.monthly-analysis .filter-group { display: flex; gap: .25rem; align-items: center; }
+.monthly-analysis .actions-group { display: flex; gap: .5rem; align-items: center; }
+.monthly-analysis select.form-control { min-width: 160px; }
+
+.monthly-analysis .btn.btn-info.btn-sm { background: #e9f0ff; color: #2647c9; border: 1px solid #cdd9ff; }
+.monthly-analysis .btn.btn-info.btn-sm:hover { background: #dbe6ff; }
+
+.active-filters { margin: .5rem 0 1rem; }
+.filter-summary { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: .4rem; padding: .25rem .5rem; border-radius: 12px; font-size: .85rem; background: var(--chip-bg, #f1f3f5); color: var(--text-color, #333); }
+.chip.period { background: #e9f0ff; color: #2647c9; }
+.chip.months { background: #f0fbff; color: #087ea4; }
+.chip.categories { background: #fff0f6; color: #a1085d; }
+.chip.members { background: #efffed; color: #0b7a00; }
+.chip.txcount { background: #f6f6ff; color: #3d3d8a; }
+.chip.income { background: #e8faff; color: #0b7ea1; }
+.chip.expense { background: #ffe8ef; color: #a10b3f; }
+.chip.balance { background: #e9f1ff; color: #2647c9; }
+
+.summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .5rem; margin-bottom: .75rem; }
+.summary-cards.row-1 { margin-bottom: 1rem; }
+.summary-card { background: var(--card-bg, #fff); border-radius: 8px; padding: .6rem; box-shadow: 0 1px 6px rgba(0,0,0,0.06); text-align: center; }
+.summary-card.active-card { border: 1px solid var(--primary-color, #4361ee); box-shadow: 0 4px 12px rgba(67,97,238,0.15); }
+.summary-card .summary-detail-btn { transition: color .15s ease; }
+.summary-card .summary-detail-btn.active { color: var(--primary-color, #4361ee); }
+.summary-card.income h3 { color: #2a9d8f; }
+.summary-card.expense h3 { color: #e76f51; }
 .summary-card.balance h3 { color: #4361ee; }
+
+/* Tarjetas más compactas: tipografías y espaciado */
+.summary-card h3 { margin: 0 0 .25rem; font-size: 1rem; }
+.summary-card p { margin: .1rem 0; font-size: .95rem; }
+
+/* Tarjetas de detalle por categoría: centrado y botón ojo a la derecha */
+.category-detail-item { text-align: left; }
+.category-detail-item.active-card { border: 1px solid var(--primary-color, #4361ee); box-shadow: 0 4px 12px rgba(67,97,238,0.12); }
+.category-detail-item .category-header { display: flex; justify-content: space-between; align-items: flex-start; }
+.category-detail-item .category-amounts { display: flex; gap: .5rem; align-items: center; justify-content: flex-end; position: static; width: auto; text-align: right; }
+/* Bloque de título con botón ojo debajo */
+.category-detail-item .category-title-block { display: flex; flex-direction: column; gap: .25rem; align-items: flex-start; }
+.category-detail-item .category-title-block h4 { margin: 0; }
+.category-detail-item .category-amounts .total { color: var(--text-color, #333); }
+/* Botón ojo bajo el título en tarjetas del resumen */
+.summary-card .summary-detail-btn { margin-top: .25rem; }
+.category-detail-item .cat-detail-btn { transition: color .15s ease; }
+.category-detail-item .cat-detail-btn.active { color: var(--primary-color, #4361ee); }
+
+/* Tarjetas y detalles: mover estilos inline a CSS */
+.summary-details { margin: .5rem 0 1rem; }
+.category-details-list > h3 { margin: .25rem 0 8px; }
+.category-detail-item {
+  background: var(--card-bg, #fff);
+  border-radius: 8px;
+  padding: .75rem;
+  margin: .5rem 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.category-detail-item .cat-detail-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: .15rem;
+  border-radius: 4px;
+}
+.category-detail-item .cat-detail-btn:hover { background: rgba(0,0,0,0.06); }
+.category-amounts .income { color: #2a9d8f; }
+.category-amounts .expense { color: #e76f51; }
+.category-amounts .percentage { color: #666; }
+.category-progress {
+  height: 8px;
+  background: #eee;
+  border-radius: 6px;
+  margin: .5rem 0 .25rem;
+}
+.category-progress .progress-fill {
+  height: 8px;
+  border-radius: 6px;
+  background: #6f42c1; /* morado */
+}
+.cat-detail { margin-top: .5rem; }
+.category-detail-item > p { margin: .25rem 0 0; color: #666; }
+
+/* Tablas compactas dentro de detalles de categoría */
+.table.compact th:last-child, .table.compact td:last-child { text-align: right; }
+
+/* Tablas generales: última columna (importe) a la derecha */
+.table th:last-child, .table td:last-child { text-align: right; }
+
+/* Colores de importes en tablas de detalle */
+.table td.income { color: #2a9d8f; }
+.table td.expense { color: #e76f51; }
+
+/* Usabilidad de tarjetas del resumen */
+.summary-card { cursor: pointer; }
+.summary-card:focus { outline: 2px solid var(--primary-color, #4361ee); outline-offset: 2px; }
+
+.member-comparison { background: var(--card-bg, #fff); border-radius: 8px; padding: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; }
+.member-comparison table { width: 100%; border-collapse: collapse; }
+.member-comparison th, .member-comparison td { padding: .5rem; border-bottom: 1px solid var(--border-color, #eee); text-align: right; }
+.member-comparison th:first-child, .member-comparison td:first-child { text-align: left; }
+.member-comparison tr:nth-child(even) { background: #fafafa; }
+
+.monthly-table-wrap { background: var(--card-bg, #fff); border-radius: 8px; padding: .5rem .5rem 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; }
 .monthly-table-wrap .table { width: 100%; border-collapse: collapse; }
 .monthly-table-wrap th, .monthly-table-wrap td { padding: .5rem; border-bottom: 1px solid var(--border-color, #eee); text-align: right; }
 .monthly-table-wrap th:first-child, .monthly-table-wrap td:first-child { text-align: left; }
+.monthly-table-wrap tbody tr:nth-child(even) { background: #fbfbfb; }
+
 .category-month-wrap { margin-top: 1rem; }
 .month-block { background: var(--card-bg, #fff); border-radius: 8px; padding: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; }
 .cat-row { display: grid; grid-template-columns: 2fr 1fr 2fr; align-items: center; gap: .5rem; padding: .25rem 0; border-bottom: 1px solid var(--border-light, #f5f5f5); }
 .cat-row:last-child { border-bottom: none; }
+
+/* Panel de selección múltiple */
+.multi-panel.hidden { display: none; }
+.multi-panel { background: var(--card-bg, #fff); border-radius: 8px; padding: .75rem; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin: .5rem 0 1rem; border: 1px solid var(--border-color, #eee); }
+.multi-panel .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: .5rem; }
+.multi-panel .panel-actions { display: flex; gap: .5rem; align-items: center; }
+.chip-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .5rem; }
+.chip-toggle { cursor: pointer; border: 1px solid transparent; }
+.chip-toggle.active { border-color: var(--primary-color, #4361ee); box-shadow: 0 0 0 2px rgba(67,97,238,0.15); }
+
+@media (max-width: 768px) {
+  .monthly-analysis select.form-control { min-width: 140px; }
+  .monthly-analysis .preset-group .label { display: none; }
+  .cat-row { grid-template-columns: 1.5fr .8fr 1.5fr; }
+}
+
+/* Análisis comparativo: gráficos en línea */
+.comparative-analysis .charts-container {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+}
+.comparative-analysis .chart-card {
+  flex: 0 0 360px;
+  min-width: 320px;
+}
+.comparative-analysis .chart-wrapper {
+  height: 300px;
+}
+@media (min-width: 1100px) {
+  .comparative-analysis .chart-card { flex: 1 0 0; min-width: 0; }
+}
+
+/* Modo compacto móvil: ocultar solo el bloque de categorías por mes */
+@media (max-width: 600px) {
+  .monthly-analysis .category-month-wrap { display: none; }
+}
 .chip.member { background: var(--primary-color, #4361ee); color: #fff; padding: .15rem .4rem; border-radius: 10px; font-size: .75rem; margin-right: .25rem; display: inline-block; }
+.chip.member.jose-luis { background-color: #1976d2; color: #fff; }
+.chip.member.gemma { background-color: #fdd835; color: #333; }
+.chip.member.hugo { background-color: #fb8c00; color: #000; }
+.chip.member.alba { background-color: #ec407a; color: #fff; }
+.chip.member.familia { background-color: #43a047; color: #fff; }
+.chip.member.otros { background-color: #e53935; color: #fff; }
+.form-control.member-color.jose-luis { background-color: #1976d2; color: #fff; }
+.form-control.member-color.gemma { background-color: #fdd835; color: #333; }
+.form-control.member-color.hugo { background-color: #fb8c00; color: #000; }
+.form-control.member-color.alba { background-color: #ec407a; color: #fff; }
+.form-control.member-color.familia { background-color: #43a047; color: #fff; }
+.form-control.member-color.otros { background-color: #e53935; color: #fff; }
 .empty-state { color: var(--text-secondary, #666); }
+
+/* Desplegables de filtros (Meses, Categorías, Sujetos) */
+.dropdown-btn { margin-left: .25rem; }
+.filter-group { position: relative; }
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color, #eee);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  padding: .25rem;
+  min-width: 220px;
+  max-height: 260px;
+  overflow: auto;
+  display: none;
+  z-index: 50;
+}
+.dropdown-menu.open { display: block; }
+.dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: .35rem .5rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  background: transparent;
+}
+.dropdown-item:hover { background: #f5f7fa; }
+.dropdown-item.active { border-color: var(--primary-color, #4361ee); background: rgba(67,97,238,0.10); }
+
+.form-control.dropdown-hidden { display: none; }

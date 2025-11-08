@@ -2,6 +2,14 @@
 (function(){
   // Contexto global mínimo
   window.APP = window.APP || { db: null };
+  // Formateo global de importes (es-ES), sin espacio antes del símbolo €
+  if (typeof window.formatAmount !== 'function') {
+    window.formatAmount = function(v){
+      const num = Number(v) || 0;
+      const s = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
+      return s.replace(/\u00a0/g,'').replace(/\s*€/,'€');
+    };
+  }
   function setupNav() {
     const links = document.querySelectorAll('nav a');
     links.forEach(link => {
@@ -109,7 +117,16 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('service-worker.js')
-          .then(() => console.log('Service Worker registrado'))
+          .then((reg) => {
+            console.log('Service Worker registrado');
+            try { reg.update(); } catch(_) {}
+            try {
+              // Si cambia el controlador (nuevo SW activo), recargar para tomar contenido nuevo
+              navigator.serviceWorker.addEventListener('controllerchange', () => {
+                try { window.location.reload(); } catch(_) {}
+              });
+            } catch(_) {}
+          })
           .catch(err => console.log('Error al registrar Service Worker:', err));
       });
     }
@@ -134,6 +151,24 @@
     setupInstallPrompt();
     registerServiceWorker();
     await initDB();
+    // Esperar brevemente a que los módulos de pestañas se registren (transacciones, análisis, etc.)
+    try {
+      await new Promise((resolve) => {
+        let tries = 0;
+        const check = () => {
+          const ready = (
+            typeof window.loadTransactions === 'function' ||
+            typeof window.loadMonthlyAnalysis === 'function' ||
+            typeof window.loadSubjectTab === 'function' ||
+            typeof window.loadScanner === 'function'
+          );
+          if (ready || tries >= 5) { resolve(); return; }
+          tries++;
+          setTimeout(check, 200);
+        };
+        check();
+      });
+    } catch (_) {}
     if (typeof window.loadContent === 'function') window.loadContent('transactions');
     if (window.SyncManager && typeof SyncManager.init === 'function') {
       try { SyncManager.init(); } catch (_) {}

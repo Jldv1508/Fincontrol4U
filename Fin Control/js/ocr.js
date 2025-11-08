@@ -125,14 +125,18 @@
       if (typeof showNotification === 'function') showNotification('No se encontraron movimientos en el escaneo', 'warning');
       return;
     }
-    const fmt = (n) => (Number(n||0)).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmt = (n) => {
+      if (typeof window.formatAmount === 'function') return window.formatAmount(n);
+      const s = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n)||0);
+      return s.replace(/\u00a0/g,'').replace(/\s*€/,'€');
+    };
     const items = transactions.map((t, i) => `
       <div class="transaction-item" data-i="${i}">
         <div class="transaction-details">
           <div class="transaction-title">${t.description || 'Movimiento'}</div>
           <div class="transaction-date">${normalizeDate(t.date)}</div>
         </div>
-        <div class="transaction-amount ${t.amount >= 0 ? 'income' : 'expense'}">${t.amount >= 0 ? '+' : '-'}${fmt(Math.abs(t.amount))} €</div>
+        <div class="transaction-amount ${t.amount >= 0 ? 'income' : 'expense'}">${t.amount >= 0 ? '+' : '-'}${fmt(Math.abs(t.amount))}</div>
       </div>
     `).join('');
     const content = `

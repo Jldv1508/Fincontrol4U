@@ -3,7 +3,7 @@
 const DB = {
     // Nombre y versión de la base de datos
     dbName: 'fincontrol_db',
-    dbVersion: 1,
+    dbVersion: 2,
     db: null,
     
     // Inicializar la base de datos
@@ -21,23 +21,7 @@ const DB = {
             // Manejar actualización de versión
             request.onupgradeneeded = (event) => {
                 const db = event.target.result;
-                
-                // Crear almacenes de objetos si no existen
-                if (!db.objectStoreNames.contains('transactions')) {
-                    const transactionsStore = db.createObjectStore('transactions', { keyPath: 'id' });
-                    transactionsStore.createIndex('date', 'date', { unique: false });
-                    transactionsStore.createIndex('type', 'type', { unique: false });
-                    transactionsStore.createIndex('category', 'category', { unique: false });
-                }
-                
-                if (!db.objectStoreNames.contains('loans')) {
-                    const loansStore = db.createObjectStore('loans', { keyPath: 'id' });
-                    loansStore.createIndex('startDate', 'startDate', { unique: false });
-                }
-                
-                if (!db.objectStoreNames.contains('settings')) {
-                    db.createObjectStore('settings', { keyPath: 'id' });
-                }
+                this._ensureStores(db);
             };
             
             // Manejar conexión exitosa
@@ -45,12 +29,66 @@ const DB = {
                 this.db = event.target.result;
                 APP.db = this.db;
                 console.log('Base de datos inicializada correctamente');
-                
-                // Cargar configuración
-                this.loadSettings()
+
+                // Comprobación defensiva: si faltan stores, forzar upgrade y crearlos
+                this._upgradeIfMissingStores()
+                    .then(() => this.loadSettings())
                     .then(() => resolve())
                     .catch(err => reject(err));
             };
+        });
+    },
+
+    // Garantiza que los object stores requeridos existen (solo válido en onupgradeneeded)
+    _ensureStores: function(db) {
+        try {
+            if (!db.objectStoreNames.contains('transactions')) {
+                const transactionsStore = db.createObjectStore('transactions', { keyPath: 'id' });
+                transactionsStore.createIndex('date', 'date', { unique: false });
+                transactionsStore.createIndex('type', 'type', { unique: false });
+                transactionsStore.createIndex('category', 'category', { unique: false });
+            }
+            if (!db.objectStoreNames.contains('loans')) {
+                const loansStore = db.createObjectStore('loans', { keyPath: 'id' });
+                loansStore.createIndex('startDate', 'startDate', { unique: false });
+            }
+            if (!db.objectStoreNames.contains('settings')) {
+                db.createObjectStore('settings', { keyPath: 'id' });
+            }
+        } catch (e) {
+            console.warn('No se pudo asegurar stores durante upgrade:', e);
+        }
+    },
+
+    // Si faltan stores tras abrir la BD, reabrir con versión+1 y crearlos
+    _upgradeIfMissingStores: function() {
+        return new Promise((resolve, reject) => {
+            try {
+                const db = this.db;
+                const missing = !db.objectStoreNames.contains('transactions') ||
+                                !db.objectStoreNames.contains('loans') ||
+                                !db.objectStoreNames.contains('settings');
+                if (!missing) { resolve(); return; }
+                const newVersion = Math.max(db.version + 1, this.dbVersion + 1);
+                try { db.close(); } catch (_) {}
+                const req = indexedDB.open(this.dbName, newVersion);
+                req.onupgradeneeded = (ev) => {
+                    const upDb = ev.target.result;
+                    this._ensureStores(upDb);
+                };
+                req.onsuccess = (ev) => {
+                    this.db = ev.target.result;
+                    APP.db = this.db;
+                    console.log('BD actualizada para crear stores faltantes (versión ' + this.db.version + ')');
+                    resolve();
+                };
+                req.onerror = (ev) => {
+                    console.error('Error en upgrade defensivo:', ev.target.error);
+                    reject(ev.target.error);
+                };
+            } catch (e) {
+                reject(e);
+            }
         });
     },
     

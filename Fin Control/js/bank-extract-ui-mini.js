@@ -81,10 +81,7 @@ const BankExtractUI = {
         
         transactions.forEach(transaction => {
             const amountClass = transaction.amount < 0 ? 'negative' : 'positive';
-            const amountFormatted = new Intl.NumberFormat('es-ES', {
-                style: 'currency',
-                currency: 'EUR'
-            }).format(transaction.amount);
+            const amountFormatted = window.formatAmount(transaction.amount);
             
             transactionsHTML += `
                 <div class="transaction-item" data-id="${transaction.id}">

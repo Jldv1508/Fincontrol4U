@@ -6,6 +6,7 @@
 // Cargar Dashboard
 function loadDashboard() {
     const mainContent = document.getElementById('mainContent');
+    const zeroAmt = (typeof window.formatAmount === 'function') ? window.formatAmount(0) : '0,00€';
     
     mainContent.innerHTML = `
         <div class="dashboard">
@@ -18,7 +19,7 @@ function loadDashboard() {
                     </div>
                     <div class="card-content">
                         <h3>Ingresos</h3>
-                        <p class="amount" id="totalIncome">€0.00</p>
+                        <p class="amount" id="totalIncome">${zeroAmt}</p>
                         <p class="period">Este mes</p>
                     </div>
                 </div>
@@ -29,7 +30,7 @@ function loadDashboard() {
                     </div>
                     <div class="card-content">
                         <h3>Gastos</h3>
-                        <p class="amount" id="totalExpense">€0.00</p>
+                        <p class="amount" id="totalExpense">${zeroAmt}</p>
                         <p class="period">Este mes</p>
                     </div>
                 </div>
@@ -40,7 +41,7 @@ function loadDashboard() {
                     </div>
                     <div class="card-content">
                         <h3>Balance</h3>
-                        <p class="amount" id="totalBalance">€0.00</p>
+                        <p class="amount" id="totalBalance">${zeroAmt}</p>
                         <p class="period">Este mes</p>
                     </div>
                 </div>
@@ -109,9 +110,9 @@ async function initDashboardData() {
         const summary = await getTransactionsSummary(firstDay, lastDay);
         
         // Actualizar tarjetas de resumen
-        document.getElementById('totalIncome').textContent = `€${summary.totalIncome.toFixed(2)}`;
-        document.getElementById('totalExpense').textContent = `€${summary.totalExpense.toFixed(2)}`;
-        document.getElementById('totalBalance').textContent = `€${(summary.totalIncome - summary.totalExpense).toFixed(2)}`;
+        document.getElementById('totalIncome').textContent = window.formatAmount(summary.totalIncome);
+        document.getElementById('totalExpense').textContent = window.formatAmount(summary.totalExpense);
+        document.getElementById('totalBalance').textContent = window.formatAmount(summary.totalIncome - summary.totalExpense);
         
         // Inicializar gráficos
         initDashboardCharts(summary);
@@ -149,7 +150,7 @@ function displayRecentTransactions(transactions) {
                     <p>${formatDate(new Date(transaction.date))}</p>
                 </div>
                 <div class="transaction-amount ${amountClass}">
-                    ${amountPrefix}€${transaction.amount.toFixed(2)}
+                    ${amountPrefix}${window.formatAmount(Math.abs(transaction.amount))}
                 </div>
             </div>
         `;

@@ -264,7 +264,7 @@ const LoansManager = {
      * @param {String} date - Fecha del pago
      * @returns {Promise} - Promise con el resultado
      */
-    async registerPayment(loanId, amount, date = new Date().toISOString(), member = null) {
+    async registerPayment(loanId, amount, date = new Date().toISOString(), member = null, installmentIdx = null) {
         try {
             // Obtener préstamo
             const loan = await this.getById(loanId);
@@ -281,7 +281,8 @@ const LoansManager = {
                 category: 'Préstamos',
                 description: `Pago de cuota: ${loan.name}`,
                 loanId: loan.id,
-                member: member || null
+                member: member || null,
+                loanInstallmentIdx: installmentIdx || null
             };
             
             await TransactionsManager.add(transaction);
@@ -293,7 +294,8 @@ const LoansManager = {
             
             loan.payments.push({
                 date: date,
-                amount: amount
+                amount: amount,
+                idx: installmentIdx || null
             });
             
             // Calcular total pagado
@@ -312,6 +314,49 @@ const LoansManager = {
         } catch (error) {
             console.error('Error al registrar pago:', error);
             UIManager.showToast('Error al registrar el pago', 'error');
+            throw error;
+        }
+    },
+
+    /**
+     * Marca una cuota concreta como pendiente, revirtiendo su pago
+     * @param {String} loanId
+     * @param {Number} installmentIdx
+     */
+    async markInstallmentPending(loanId, installmentIdx) {
+        try {
+            const loan = await this.getById(loanId);
+            if (!loan || !Array.isArray(loan.payments) || loan.payments.length === 0) {
+                UIManager.showToast('No hay pagos registrados', 'warning');
+                return false;
+            }
+            // Buscar pago por índice de cuota
+            const idx = Number(installmentIdx);
+            const payIndex = loan.payments.findIndex(p => Number(p.idx) === idx);
+            if (payIndex === -1) {
+                UIManager.showToast('No existe pago para esa cuota', 'warning');
+                return false;
+            }
+            const payment = loan.payments[payIndex];
+            // Eliminar transacción asociada
+            const allTx = await TransactionsManager.getAll();
+            const txToDelete = allTx.find(t => t.loanId === loanId && Number(t.loanInstallmentIdx) === idx);
+            if (txToDelete) {
+                await TransactionsManager.delete(txToDelete.id);
+            }
+            // Quitar pago del array y recalcular
+            loan.payments.splice(payIndex, 1);
+            loan.paidAmount = loan.payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+            // Revertir estado si estaba completado
+            if ((loan.status || 'active') === 'completed') {
+                loan.status = 'active';
+            }
+            await this.update(loan);
+            UIManager.showToast('Cuota marcada como pendiente', 'success');
+            return true;
+        } catch (error) {
+            console.error('Error al marcar cuota como pendiente:', error);
+            UIManager.showToast('Error al marcar como pendiente', 'error');
             throw error;
         }
     },

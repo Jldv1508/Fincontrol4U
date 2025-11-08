@@ -86,6 +86,10 @@ const TransactionsManager = {
             const id = await db.add('transactions', transaction);
             
             UIManager.showToast('Transacción añadida correctamente', 'success');
+            // Notificar alta para refrescar vistas de análisis
+            try {
+                window.dispatchEvent(new CustomEvent('transactions-changed', { detail: { reason: 'core-add', ids: [id] } }));
+            } catch (_) {}
             return id;
         } catch (error) {
             console.error('Error al añadir transacción:', error);
@@ -107,6 +111,10 @@ const TransactionsManager = {
             await db.put('transactions', transaction);
             
             UIManager.showToast('Transacción actualizada correctamente', 'success');
+            // Notificar cambio para que vistas de análisis se refresquen
+            try {
+                window.dispatchEvent(new CustomEvent('transactions-changed', { detail: { reason: 'core-update', ids: [transaction.id] } }));
+            } catch (_) {}
             return true;
         } catch (error) {
             console.error('Error al actualizar transacción:', error);
@@ -124,6 +132,10 @@ const TransactionsManager = {
             await db.delete('transactions', id);
             
             UIManager.showToast('Transacción eliminada correctamente', 'success');
+            // Notificar baja para refrescar vistas de análisis
+            try {
+                window.dispatchEvent(new CustomEvent('transactions-changed', { detail: { reason: 'core-delete', ids: [id] } }));
+            } catch (_) {}
             return true;
         } catch (error) {
             console.error('Error al eliminar transacción:', error);

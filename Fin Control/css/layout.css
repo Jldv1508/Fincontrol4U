@@ -99,6 +99,10 @@ nav ul {
     padding: 0;
     display: flex;
     gap: 8px;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: nowrap;
+    overflow-x: auto;
 }
 
 nav a {
@@ -109,6 +113,9 @@ nav a {
     border-radius: 10px;
     text-decoration: none;
     color: var(--text-color);
+    text-align: center;
+    white-space: nowrap;
+    flex: 0 0 auto;
 }
 
 nav a.active {

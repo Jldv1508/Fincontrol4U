@@ -1,6 +1,7 @@
 /**
  * categories-analysis.js - Análisis por categorías con filtro por miembro de familia
  */
+let currentGrouping = 'category';
 
 async function loadCategoriesAnalysis() {
     const main = ensureMain();
@@ -9,6 +10,18 @@ async function loadCategoriesAnalysis() {
     main.innerHTML = `
         <section class="categories-analysis">
             <h2>Análisis por Categorías</h2>
+            <div class="analysis-intro" style="margin:10px 0;padding:10px;border:1px dashed #ccc;border-radius:6px;color:#444;">
+              <p>
+                Explora ingresos y gastos por categoría o subcategoría.
+                Filtra por sujeto y período para afinar los resultados. Usa "Ver detalles"
+                en cada categoría para desplegar transacciones relevantes.
+              </p>
+            </div>
+            <div class="group-toggle" style="margin: 8px 0; display:flex; gap:8px;">
+                <button id="group-category" class="btn btn-sm">Categorías</button>
+                <button id="group-subcategory" class="btn btn-sm">Subcategorías</button>
+                <button id="group-subjects" class="btn btn-sm" title="Vista por sujetos disponible en otras secciones">Sujetos</button>
+            </div>
             
             <div class="analysis-filters">
                 <div class="filter-row">
@@ -16,10 +29,10 @@ async function loadCategoriesAnalysis() {
                         <option value="">Todos los miembros</option>
                     </select>
                     <select id="period-filter" class="form-control">
+                        <option value="current-year" selected>Año actual</option>
+                        <option value="last-year">Año anterior</option>
                         <option value="current-month">Mes actual</option>
                         <option value="last-month">Mes anterior</option>
-                        <option value="current-year">Año actual</option>
-                        <option value="last-year">Año anterior</option>
                         <option value="all">Todo el período</option>
                     </select>
                     <button id="apply-filters" class="btn btn-primary">
@@ -49,15 +62,33 @@ async function loadCategoriesAnalysis() {
     await loadCategoryAnalysis();
 }
 
+function getMemberClass(name) {
+    if (!name) return '';
+    const slug = (name||'').toString().trim().toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, '-');
+    switch (slug) {
+        case 'jose-luis': return 'jose-luis';
+        case 'gemma': return 'gemma';
+        case 'hugo': return 'hugo';
+        case 'alba': return 'alba';
+        case 'familia': return 'familia';
+        case 'otros': return 'otros';
+        default: return 'otros';
+    }
+}
+
 function initializeCategoryFilters() {
     // Inicializar selector de miembros
     const memberFilter = document.getElementById('member-filter');
     if (memberFilter && typeof FamilyManager !== 'undefined') {
         const members = FamilyManager.getMembers();
-        memberFilter.innerHTML = '<option value="">Todos los miembros</option>' + 
+        memberFilter.innerHTML = '<option value="">Sujeto</option>' + 
             members.filter(m => m !== 'Todos').map(member => 
                 `<option value="${member}">${member}</option>`
             ).join('');
+        applyMemberFilterColor();
+        memberFilter.addEventListener('change', applyMemberFilterColor);
     }
     
     // Event listeners para filtros
@@ -65,6 +96,26 @@ function initializeCategoryFilters() {
     if (applyButton) {
         applyButton.addEventListener('click', loadCategoryAnalysis);
     }
+
+    // Toggle de agrupación Categorías/Subcategorías
+    const btnCat = document.getElementById('group-category');
+    const btnSub = document.getElementById('group-subcategory');
+    if (btnCat) btnCat.addEventListener('click', () => { currentGrouping = 'category'; loadCategoryAnalysis(); });
+    if (btnSub) btnSub.addEventListener('click', () => { currentGrouping = 'subcategory'; loadCategoryAnalysis(); });
+}
+
+function applyMemberFilterColor(){
+    const el = document.getElementById('member-filter');
+    if (!el) return;
+    const val = el.value || '';
+    const cls = getMemberClass(val);
+    el.classList.remove('member-color','jose-luis','gemma','hugo','alba','familia','otros');
+    if (!val || val === 'Todos') {
+        // Sin color para "Todos"
+        return;
+    }
+    el.classList.add('member-color');
+    if (cls) el.classList.add(cls);
 }
 
 async function loadCategoryAnalysis() {
@@ -96,8 +147,10 @@ async function loadCategoryAnalysis() {
         // Filtrar transacciones
         const filteredTransactions = filterTransactionsByPeriodAndMember(allTransactions, periodFilter, memberFilter);
         
-    // Generar análisis
-    const analysis = generateCategoryAnalysis(filteredTransactions);
+    // Generar análisis según agrupación
+    const analysis = currentGrouping === 'subcategory'
+      ? generateSubcategoryAnalysis(filteredTransactions)
+      : generateCategoryAnalysis(filteredTransactions);
 
     // Caso sin datos: mensaje claro y gráfico oculto
     const isEmpty = !filteredTransactions.length || !analysis.sortedCategories || analysis.sortedCategories.length === 0;
@@ -114,14 +167,14 @@ async function loadCategoryAnalysis() {
               'all': 'Todo el período'
             }[periodFilter] || 'Período seleccionado'}${memberFilter ? ` - ${memberFilter}` : ' - Todos los miembros'}</p>
           </div>
-          <div class="summary-card income"><h3>Ingresos</h3><p>€0,00</p></div>
-          <div class="summary-card expense"><h3>Gastos</h3><p>€0,00</p></div>
-          <div class="summary-card balance"><h3>Balance</h3><p>€0,00</p></div>
+          <div class="summary-card income"><h3>Ingresos</h3><p>${(typeof window.formatAmount==='function'?window.formatAmount(0):'0,00€')}</p></div>
+          <div class="summary-card expense"><h3>Gastos</h3><p>${(typeof window.formatAmount==='function'?window.formatAmount(0):'0,00€')}</p></div>
+          <div class="summary-card balance"><h3>Balance</h3><p>${(typeof window.formatAmount==='function'?window.formatAmount(0):'0,00€')}</p></div>
           <div class="summary-card"><h3>Transacciones</h3><p>0</p></div>
         </div>
         <p class="empty-state">No hay transacciones para el período y miembro seleccionados.</p>
       `;
-      detailsContainer.innerHTML = '<p class="empty-state">Sin detalles de categorías disponibles.</p>';
+      detailsContainer.innerHTML = '<p class="empty-state">Sin detalles disponibles.</p>';
       if (chartContainer) chartContainer.innerHTML = '<div class="empty-state">Gráfico no disponible por falta de datos.</div>';
       if (window.UIManager && typeof UIManager.showToast === 'function') {
         UIManager.showToast('No hay datos en Categorías para los filtros seleccionados', 'info');
@@ -152,19 +205,19 @@ function filterTransactionsByPeriodAndMember(transactions, period, member) {
     switch (period) {
         case 'current-month':
             startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-            endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+            endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
             break;
         case 'last-month':
             startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-            endDate = new Date(now.getFullYear(), now.getMonth(), 0);
+            endDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
             break;
         case 'current-year':
             startDate = new Date(now.getFullYear(), 0, 1);
-            endDate = new Date(now.getFullYear(), 11, 31);
+            endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
             break;
         case 'last-year':
             startDate = new Date(now.getFullYear() - 1, 0, 1);
-            endDate = new Date(now.getFullYear() - 1, 11, 31);
+            endDate = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59, 999);
             break;
         default:
             startDate = null;
@@ -181,7 +234,7 @@ function filterTransactionsByPeriodAndMember(transactions, period, member) {
         }
         
         // Filtrar por miembro
-        if (member && tx.member && tx.member !== member) {
+        if (member && tx.member !== member) {
             return false;
         }
         
@@ -194,7 +247,9 @@ function generateCategoryAnalysis(transactions) {
         totalIncome: 0,
         totalExpenses: 0,
         categories: {},
-        transactionCount: transactions.length
+        transactionCount: transactions.length,
+        chartTitle: 'Gastos por Categoría',
+        title: 'Detalles por Categoría'
     };
     
     transactions.forEach(tx => {
@@ -215,7 +270,7 @@ function generateCategoryAnalysis(transactions) {
         if (type === 'income') {
             analysis.categories[category].income += amount;
             analysis.totalIncome += amount;
-        } else {
+        } else if (type === 'expense') {
             analysis.categories[category].expenses += amount;
             analysis.totalExpenses += amount;
         }
@@ -228,6 +283,50 @@ function generateCategoryAnalysis(transactions) {
     analysis.sortedCategories = sortedCategories;
     analysis.balance = analysis.totalIncome - analysis.totalExpenses;
     
+    return analysis;
+}
+
+function generateSubcategoryAnalysis(transactions) {
+    const analysis = {
+        totalIncome: 0,
+        totalExpenses: 0,
+        categories: {},
+        transactionCount: transactions.length,
+        chartTitle: 'Gastos por Subcategoría',
+        title: 'Detalles por Subcategoría'
+    };
+
+    transactions.forEach(tx => {
+        const amount = Number(tx.amount) || 0;
+        const category = tx.category || 'Sin categoría';
+        const sub = tx.subcategory || 'Sin subcategoría';
+        const key = `${category}: ${sub}`;
+        const type = tx.type || tx.kind || 'expense';
+
+        if (!analysis.categories[key]) {
+            analysis.categories[key] = {
+                income: 0,
+                expenses: 0,
+                transactions: []
+            };
+        }
+
+        analysis.categories[key].transactions.push(tx);
+
+        if (type === 'income') {
+            analysis.categories[key].income += amount;
+            analysis.totalIncome += amount;
+        } else {
+            analysis.categories[key].expenses += amount;
+            analysis.totalExpenses += amount;
+        }
+    });
+
+    const sortedCategories = Object.entries(analysis.categories)
+        .sort(([,a], [,b]) => b.expenses - a.expenses);
+    analysis.sortedCategories = sortedCategories;
+    analysis.balance = analysis.totalIncome - analysis.totalExpenses;
+
     return analysis;
 }
 
@@ -275,7 +374,7 @@ function renderCategoryDetails(analysis) {
     
     return `
         <div class="category-details-list">
-            <h3>Detalles por Categoría</h3>
+            <h3>${analysis.title || 'Detalles'}</h3>
             ${analysis.sortedCategories.map(([category, data]) => {
                 const total = data.expenses + data.income;
                 const expensePercentage = analysis.totalExpenses > 0 ? 
@@ -310,7 +409,7 @@ function renderCategoryDetails(analysis) {
                                     <span class="tx-amount ${tx.type === 'expense' ? 'negative' : 'positive'}">
                                         ${tx.type === 'expense' ? '-' : '+'}${formatAmount(tx.amount)}
                                     </span>
-                                    ${tx.member ? `<span class="tx-member">${tx.member}</span>` : ''}
+                                    ${tx.member ? `<span class="tx-member ${getMemberClass(tx.member)}">${tx.member}</span>` : ''}
                                 </div>
                             `).join('')}
                             ${data.transactions.length > 5 ? `<p class="more-transactions">... y ${data.transactions.length - 5} más</p>` : ''}
@@ -372,7 +471,7 @@ function updateCategoriesChart(analysis) {
                 },
                 title: {
                     display: true,
-                    text: 'Gastos por Categoría'
+                    text: analysis.chartTitle || 'Gastos'
                 }
             }
         }
@@ -381,13 +480,17 @@ function updateCategoriesChart(analysis) {
 
 // Función auxiliar para formatear cantidades (debe estar disponible globalmente)
 function formatAmount(amount) {
-    if (typeof window.formatAmount === 'function') {
+    // Evitar recursión si window.formatAmount apunta a esta misma función
+    if (typeof window.formatAmount === 'function' && window.formatAmount !== formatAmount) {
         return window.formatAmount(amount);
     }
-    return new Intl.NumberFormat('es-ES', { 
-        style: 'currency', 
-        currency: 'EUR' 
-    }).format(amount || 0);
+    const s = new Intl.NumberFormat('es-ES', {
+        style: 'currency',
+        currency: 'EUR',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    }).format(Number(amount) || 0);
+    return s.replace(/\u00a0/g,'').replace(/\s*€/,'€');
 }
 
 // Función auxiliar para obtener todas las transacciones
@@ -412,3 +515,12 @@ function ensureMain() {
 // Exponer funciones globalmente
 window.loadCategoriesAnalysis = loadCategoriesAnalysis;
 window.toggleCategoryTransactions = toggleCategoryTransactions;
+
+// Escuchar cambios en transacciones para actualizar análisis si esta vista está activa
+try {
+    window.addEventListener('transactions-changed', async () => {
+        if (document.querySelector('.categories-analysis')) {
+            try { await loadCategoryAnalysis(); } catch (_) {}
+        }
+    });
+} catch (_) {}

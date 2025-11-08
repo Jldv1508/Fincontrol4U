@@ -117,7 +117,8 @@ function showModal(options = {}) {
         size = 'medium', // small, medium, large, fullscreen
         closable = true,
         buttons = [],
-        onClose = null
+        onClose = null,
+        onOpen = null
     } = options;
     
     // Crear elemento modal
@@ -154,6 +155,14 @@ function showModal(options = {}) {
     // Mostrar con animación
     setTimeout(() => {
         modal.classList.add('show');
+        // Callback de apertura si se ha proporcionado
+        if (typeof onOpen === 'function') {
+            try {
+                onOpen(modal);
+            } catch (err) {
+                console.error('Error en onOpen del modal:', err);
+            }
+        }
     }, 10);
     
     // Configurar eventos

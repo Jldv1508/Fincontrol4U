@@ -191,8 +191,8 @@ const PriceComparisonManager = {
             html += `
                 <tr>
                     <td>${store.store}</td>
-                    <td>${store.latestPrice.toFixed(2)} €</td>
-                    <td>${store.averagePrice.toFixed(2)} €</td>
+                    <td>${window.formatAmount(store.latestPrice)}</td>
+                    <td>${window.formatAmount(store.averagePrice)}</td>
                     <td class="${differenceClass}">
                         ${store.latestPrice === lowestPrice ? 'Mejor precio' : `+${difference}%`}
                     </td>
@@ -391,7 +391,7 @@ const PriceComparisonManager = {
                             </div>
                             <div class="stat">
                                 <span class="stat-label">Precio promedio:</span>
-                                <span class="stat-value">${result.bestStore.averagePrice.toFixed(2)} €</span>
+                                <span class="stat-value">${window.formatAmount(result.bestStore.averagePrice)}</span>
                             </div>
                         </div>
                     </div>
@@ -415,7 +415,7 @@ const PriceComparisonManager = {
                 <tr>
                     <td>${store.store}</td>
                     <td>${store.productCount} de ${productNames.length}</td>
-                    <td>${store.totalPrice.toFixed(2)} €</td>
+                    <td>${window.formatAmount(store.totalPrice)}</td>
                     <td>${store.normalizedScore.toFixed(1)}</td>
                 </tr>
             `;
@@ -456,7 +456,7 @@ const PriceComparisonManager = {
                 content += `
                     <tr>
                         <td>${store.store}</td>
-                        <td>${store.latestPrice.toFixed(2)} €</td>
+                        <td>${window.formatAmount(store.latestPrice)}</td>
                         <td class="${differenceClass}">
                             ${store.latestPrice === lowestPrice ? 'Mejor precio' : `+${difference}%`}
                         </td>

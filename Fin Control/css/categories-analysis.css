@@ -229,6 +229,18 @@
     font-size: 0.7rem;
     margin-left: 0.5rem;
 }
+.transaction-mini .tx-member.jose-luis { background-color: #1976d2; color: #fff; }
+.transaction-mini .tx-member.gemma { background-color: #fdd835; color: #333; }
+.transaction-mini .tx-member.hugo { background-color: #fb8c00; color: #000; }
+.transaction-mini .tx-member.alba { background-color: #ec407a; color: #fff; }
+.transaction-mini .tx-member.familia { background-color: #43a047; color: #fff; }
+.transaction-mini .tx-member.otros { background-color: #e53935; color: #fff; }
+.analysis-filters #member-filter.member-color.jose-luis { background-color: #1976d2; color: #fff; }
+.analysis-filters #member-filter.member-color.gemma { background-color: #fdd835; color: #333; }
+.analysis-filters #member-filter.member-color.hugo { background-color: #fb8c00; color: #000; }
+.analysis-filters #member-filter.member-color.alba { background-color: #ec407a; color: #fff; }
+.analysis-filters #member-filter.member-color.familia { background-color: #43a047; color: #fff; }
+.analysis-filters #member-filter.member-color.otros { background-color: #e53935; color: #fff; }
 
 .more-transactions {
     text-align: center;
